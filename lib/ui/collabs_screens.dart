@@ -126,7 +126,7 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           child: Row(children: [
-            Text('${list.length} collabs · ${money(list.fold(0.0, (a, c) => a + c.agreed))}',
+            Text('${list.length} collabs · ${money(list.fold<double>(0.0, (a, c) => a + c.agreed))}',
                 style: const TextStyle(color: kMuted, fontSize: 12)),
             const Spacer(),
             Text('Sort: $_sort', style: const TextStyle(color: kMuted, fontSize: 12)),

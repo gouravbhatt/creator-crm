@@ -23,7 +23,7 @@ flutter build apk --release
 # output: build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Tested toolchain: Flutter 3.24.5, Java 17. The `android/` folder is generated in CI from the Flutter template and patched by `tool/patch_android.sh` (minSdk 23, backup disabled, app label, R8 keep rules for SQLCipher).
+Tested toolchain: Flutter 3.32.0, Java 17. The `android/` folder is generated in CI from the Flutter template and patched by `tool/patch_android.sh` (minSdk 23, backup disabled, app label, R8 keep rules for SQLCipher).
 
 ## Backup and restore
 

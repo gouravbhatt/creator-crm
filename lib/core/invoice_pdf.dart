@@ -59,7 +59,7 @@ class InvoicePdf {
 
     final doc = pw.Document(title: str(invoice['number']), author: name);
     final small = pw.TextStyle(fontSize: 9, color: PdfColors.grey700);
-    const bold = pw.TextStyle(fontWeight: pw.FontWeight.bold);
+    final bold = pw.TextStyle(fontWeight: pw.FontWeight.bold);
 
     pw.Widget party(String label, List<String> lines) => pw.Expanded(
           child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [

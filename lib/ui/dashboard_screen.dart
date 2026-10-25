@@ -140,7 +140,7 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
       ),
       SectionCard(
         title: 'Pipeline by stage',
-        trailing: Text(money(active.fold(0.0, (a, c) => a + c.agreed)), style: const TextStyle(color: kMuted, fontSize: 12)),
+        trailing: Text(money(active.fold<double>(0.0, (a, c) => a + c.agreed)), style: const TextStyle(color: kMuted, fontSize: 12)),
         child: Builder(builder: (_) {
           final counts = {for (final st in kStages) st: s.collabs.where((c) => c.stage == st).length};
           final maxC = counts.values.fold(1, (a, b) => b > a ? b : a);
