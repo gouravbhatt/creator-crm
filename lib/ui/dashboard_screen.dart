@@ -2,10 +2,14 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
+import '../core/earnings.dart';
 import '../core/format.dart';
+import '../core/repo.dart';
 import '../core/snapshot.dart';
 import 'collabs_screens.dart';
+import 'payments_screen.dart';
 import 'search_screen.dart';
+import 'v2_widgets.dart';
 import 'widgets.dart';
 
 class _Attention {
@@ -24,38 +28,37 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
   Snapshot? _s;
+  Map<String, String> _profile = {};
+  String _period = 'This FY';
+  String _type = 'All';
 
   @override
   Future<void> reload() async {
     final s = await Snapshot.load();
-    if (mounted) setState(() => _s = s);
+    final st = await Repo.settings();
+    if (mounted) {
+      setState(() {
+        _s = s;
+        _profile = st;
+      });
+    }
   }
 
-  List<_Attention> _attention(Snapshot s) {
+  List<_Attention> _attention(List<CollabView> list) {
     bool anyDel(CollabView c, bool Function(Map<String, dynamic>) f) => c.deliverables.any(f);
-    final active = s.collabs.where((c) => c.stage != kCancelled).toList();
+    final live = list.where((c) => c.stage != kCancelled).toList();
     return [
-      _Attention('Payments overdue', kDanger, active.where((c) => c.paymentStatus == 'Overdue').toList()),
-      _Attention('Deliverables due in 3 days', kWarn, active.where((c) => anyDel(c, (d) {
-            final st = str(d['status']);
+      _Attention('Payments overdue', kDanger, live.where((c) => c.paymentStatus == 'Overdue').toList()),
+      _Attention('Posts due in 7 days', kWarn, live.where((c) => anyDel(c, (d) {
             final days = daysFromToday(d['due_date']);
-            return st != 'Live' && st != 'Approved' && days >= 0 && days <= 3;
+            return d['status'] != 'Live' && days >= 0 && days <= 7;
           })).toList()),
-      _Attention('Revisions requested', kWarn, active.where((c) => anyDel(c, (d) => d['status'] == 'Revision')).toList()),
-      _Attention('Live but link missing', kPrimary,
-          active.where((c) => anyDel(c, (d) => d['status'] == 'Live' && str(d['live_link']).isEmpty)).toList()),
-      _Attention('7-day metrics not logged', kMuted, active.where((c) => anyDel(c, (d) {
-            if (d['status'] != 'Live') return false;
-            final days = daysFromToday(d['live_date']);
-            return days <= -7 && Snapshot.bestMetric(c.metricsFor(str(d['id']))) == null;
-          })).toList()),
-      _Attention('Usage rights end in 15 days', kMuted, s.collabs.where((c) {
+      _Attention('Posted, link missing', kPrimary,
+          live.where((c) => anyDel(c, (d) => d['status'] == 'Live' && str(d['live_link']).isEmpty)).toList()),
+      _Attention('Revisions asked', kWarn, live.where((c) => anyDel(c, (d) => d['status'] == 'Revision')).toList()),
+      _Attention('Rights end in 15 days', kMuted, live.where((c) {
         final d = daysFromToday(c.row['usage_rights_until']);
         return d >= 0 && d <= 15;
-      }).toList()),
-      _Attention('Renewals due in 30 days', kOk, s.collabs.where((c) {
-        final d = daysFromToday(c.row['renewal_date']);
-        return d >= 0 && d <= 30;
       }).toList()),
     ].where((a) => a.items.isNotEmpty).toList();
   }
@@ -64,117 +67,242 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
   Widget build(BuildContext context) {
     final s = _s;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard'),
-        actions: [
-          IconButton(icon: const Icon(Icons.search), tooltip: 'Search', onPressed: () => push(context, const SearchScreen())),
-        ],
+      body: SafeArea(
+        child: s == null
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(onRefresh: reload, child: ListView(padding: const EdgeInsets.only(bottom: 24), children: _body(s))),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'fab_dashboard',
-        onPressed: () => push(context, const CollabFormScreen()),
-        icon: const Icon(Icons.add),
-        label: const Text('New collab'),
-      ),
-      body: s == null
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: reload,
-              child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 96), children: _body(s)),
-            ),
     );
   }
 
   List<Widget> _body(Snapshot s) {
-    final now = DateTime.now();
-    final monthStart = DateTime(now.year, now.month, 1);
-    final thisMonth = s.receipts.where((r) {
-      final d = parseDate(r['received_date']);
-      return d != null && !d.isBefore(monthStart);
-    }).fold(0.0, (a, r) => a + toD(r['amount']) + toD(r['tds']));
-    final outstanding = s.collabs.fold(0.0, (a, c) => a + c.pending);
-    final overdue = s.collabs.where((c) => c.paymentStatus == 'Overdue').length;
-    final active = s.collabs.where((c) => c.active).toList();
-    final inReview = active.where((c) => c.stage == 'Review').length;
-    final liveThisMonth = s.deliverables.where((d) {
-      final dt = parseDate(d['live_date']);
-      return d['status'] == 'Live' && dt != null && !dt.isBefore(monthStart);
-    }).length;
-    final totalReceived = s.collabs.fold(0.0, (a, c) => a + c.received);
-    final attention = _attention(s);
+    final list = filterCollabs(s, type: _type);
+    final p = Period.of(_period);
+    final e = computeEarnings(list, p);
+    final pending = list.fold<double>(0, (a, c) => a + c.pending);
+    final overdue = list.where((c) => c.paymentStatus == 'Overdue').length;
+    final posted = s.deliverables.where((d) => d['status'] == 'Live' && p.hasStr(d['live_date']) && list.any((c) => c.id == d['collab_id'])).length;
+    final toPost = list
+        .where((c) => c.stage != kCancelled)
+        .fold<int>(0, (a, c) => a + c.deliverables.where((d) => d['status'] != 'Live').length);
+    final barterCount = list.where((c) => c.hasBarter && c.barterEarned > 0 && p.has(c.barterDate)).length;
+    final cashFrac = e.total <= 0 ? 0.5 : e.cash / e.total;
+    final recent = [...list]..sort((a, b) => str(b.row['updated_at']).compareTo(str(a.row['updated_at'])));
+    final attention = _attention(list);
+    final name = _profile['profile_name'] ?? '';
+    final handle = _profile['profile_handle'] ?? '';
+    final photo = _profile['profile_photo'] ?? '';
 
     return [
-      StatGrid(children: [
-        StatTile(label: 'Received this month', value: money(thisMonth), sub: 'All time ${money(totalReceived)}'),
-        StatTile(label: 'Outstanding', value: money(outstanding), sub: '$overdue overdue', color: overdue > 0 ? kDanger : null),
-        StatTile(label: 'Active collabs', value: '${active.length}', sub: '$inReview in review'),
-        StatTile(label: 'Live this month', value: '$liveThisMonth', sub: 'deliverables posted'),
-      ]),
-      SectionCard(
-        title: 'Totals',
-        child: Wrap(spacing: 8, runSpacing: 8, children: [
-          Chip(label: Text('${s.brands.length} brands')),
-          Chip(label: Text('${s.contacts.length} contacts')),
-          Chip(label: Text('${s.collabs.length} collabs')),
-          Chip(label: Text('${active.length} pending collabs')),
-          Chip(label: Text('${s.products.length} products')),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+        child: Row(children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kPrimary, width: 2)),
+            child: ClipOval(
+              child: photo.isEmpty
+                  ? Container(color: kPrimaryTint, child: const Icon(Icons.person_outline, color: kPrimary))
+                  : ProductThumb(fileName: photo, type: kPaid, size: 46, radius: 23),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name.isEmpty ? 'Hi there' : 'Hi ${name.split(' ').first}', style: const TextStyle(fontSize: 13, color: kMuted)),
+              Text(handle.isEmpty ? 'Set your @handle in Profile' : '@${handle.replaceFirst('@', '')}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            ]),
+          ),
+          IconButton(
+            style: IconButton.styleFrom(backgroundColor: Colors.white),
+            icon: const Icon(Icons.search),
+            onPressed: () => push(context, const SearchScreen()),
+          ),
         ]),
       ),
-      SectionCard(
-        title: 'Needs attention',
-        child: attention.isEmpty
-            ? const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text('All clear. Nothing overdue or due soon.', style: TextStyle(color: kMuted)))
-            : Column(
-                children: attention
-                    .map((a) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          leading: CircleAvatar(radius: 5, backgroundColor: a.color),
-                          title: Text(a.label),
-                          trailing: Text('${a.items.length}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                          onTap: () => _showList(a),
-                        ))
-                    .toList()),
+      PillRow(options: Period.keys, value: _period, onChanged: (v) => setState(() => _period = v), padding: const EdgeInsets.symmetric(horizontal: 16)),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+        child: Segmented(options: const ['All', kPaid, kBarter, 'Both'], value: _type, onChanged: (v) => setState(() => _type = v)),
       ),
-      SectionCard(
-        title: 'Pipeline by stage',
-        trailing: Text(money(active.fold<double>(0.0, (a, c) => a + c.agreed)), style: const TextStyle(color: kMuted, fontSize: 12)),
-        child: Builder(builder: (_) {
-          final counts = {for (final st in kStages) st: s.collabs.where((c) => c.stage == st).length};
-          final maxC = counts.values.fold(1, (a, b) => b > a ? b : a);
-          return Column(
-              children: kStages
-                  .map((st) => BarLine(
-                      label: st, fraction: counts[st]! / maxC, value: '${counts[st]}', color: stageColor(st)))
-                  .toList());
-        }),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _hero(e, cashFrac, p),
+          const SizedBox(height: 12),
+          StatGrid(children: [
+            _tile('₹', 'Cash received', money(e.cash), 'from ${e.paidCollabs} paid collab${e.paidCollabs == 1 ? '' : 's'}', kPrimaryTint, kPrimary),
+            _tile('◆', 'Barter value till now', money(e.barter), 'from $barterCount barter collab${barterCount == 1 ? '' : 's'}', kBarterTint, kBarterC),
+            _tile('⏳', 'Pending payments', money(pending), '$overdue overdue', kWarnTint, kWarn,
+                subColor: overdue > 0 ? kDanger : kMuted, onTap: () => push(context, const PaymentsScreen())),
+            _tile('▶', 'Reels posted', '$posted', '$toPost still to post', kBothTint, kBothC),
+          ]),
+          Panel(title: 'Earnings by month', trailing: _legend(), child: SizedBox(height: 160, child: _chart(list, p))),
+          if (attention.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(2, 2, 0, 8),
+              child: Text('Needs attention', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+            SizedBox(
+              height: 92,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: attention.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final a = attention[i];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => _showList(a),
+                    child: Container(
+                      width: 150,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('${a.items.length}', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: a.color)),
+                        Text(a.label, style: const TextStyle(fontSize: 12, color: Color(0xFF3B3753))),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+          Row(children: [
+            const Expanded(child: Text('Recent collabs', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+            TextButton(onPressed: () => widget.onOpenTab(1), child: const Text('See all')),
+          ]),
+          if (recent.isEmpty)
+            Panel(
+              child: Column(children: [
+                const Text('No collabs yet', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                const Text('Add your first brand deal — barter, paid or both.', style: TextStyle(color: kMuted)),
+                const SizedBox(height: 12),
+                FilledButton(onPressed: () => push(context, const CollabFormScreen()), child: const Text('+ New collab')),
+              ]),
+            ),
+          for (final c in recent.take(5)) ...[
+            CollabRow(c: c, thumb: 56, onTap: () => push(context, CollabDetailScreen(collabId: c.id))),
+            const SizedBox(height: 8),
+          ],
+        ]),
       ),
-      SectionCard(title: 'Earnings · last 6 months', child: SizedBox(height: 170, child: _earningsChart(s))),
-      SectionCard(title: 'Next 7 days', child: _upcoming(s)),
     ];
   }
 
-  Widget _earningsChart(Snapshot s) {
-    final now = DateTime.now();
-    final months = List.generate(6, (i) => DateTime(now.year, now.month - 5 + i, 1));
-    final values = months.map((m) {
-      final next = DateTime(m.year, m.month + 1, 1);
-      return s.receipts.where((r) {
-        final d = parseDate(r['received_date']);
-        return d != null && !d.isBefore(m) && d.isBefore(next);
-      }).fold(0.0, (a, r) => a + toD(r['amount']) + toD(r['tds']));
-    }).toList();
-    final maxV = values.fold(0.0, (a, b) => b > a ? b : a);
+  Widget _hero(Earnings e, double cashFrac, Period p) {
+    final prev = computeEarnings(filterCollabs(_s!, type: _type), p.previous());
+    final change = (p.key == 'All time' || prev.total <= 0) ? null : ((e.total - prev.total) * 100 / prev.total);
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: kPrimary, borderRadius: BorderRadius.circular(24)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(child: Text('Total earned · ${p.key}', style: const TextStyle(color: Color(0xFFDCD4FF), fontSize: 13))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+            child: Text('${e.collabIds.length} collabs', style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(money(e.total), style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.w800, letterSpacing: -1)),
+        ),
+        if (change != null)
+          Text('${change >= 0 ? '▲' : '▼'} ${change.abs().toStringAsFixed(0)}% vs previous',
+              style: TextStyle(color: change >= 0 ? const Color(0xFFB8F5D6) : const Color(0xFFFFC2CF), fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(5),
+          child: SizedBox(
+            height: 10,
+            child: Row(children: [
+              Expanded(flex: (cashFrac * 1000).round().clamp(1, 999).toInt(), child: Container(color: Colors.white)),
+              Expanded(flex: ((1 - cashFrac) * 1000).round().clamp(1, 999).toInt(), child: Container(color: const Color(0xFFFF8FB4))),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: _heroPart('Cash received', money(e.cash), Colors.white)),
+          Expanded(child: _heroPart('Barter value', money(e.barter), const Color(0xFFFF8FB4))),
+        ]),
+        const Divider(color: Color(0x26FFFFFF), height: 22),
+        Text('Net profit after expenses  ${money(e.net)}', style: const TextStyle(color: Color(0xFFDCD4FF), fontSize: 12)),
+      ]),
+    );
+  }
+
+  Widget _heroPart(String k, String v, Color dot) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          CircleAvatar(radius: 4, backgroundColor: dot),
+          const SizedBox(width: 6),
+          Text(k, style: const TextStyle(color: Color(0xFFDCD4FF), fontSize: 12)),
+        ]),
+        Text(v, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+      ]);
+
+  Widget _tile(String icon, String label, String value, String sub, Color tint, Color c,
+      {Color subColor = kMuted, VoidCallback? onTap}) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(10)),
+              child: Text(icon, style: TextStyle(color: c, fontWeight: FontWeight.w800, fontSize: 15)),
+            ),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(fontSize: 12, color: kMuted)),
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
+            Text(sub, style: TextStyle(fontSize: 11, color: subColor)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _legend() => const Row(mainAxisSize: MainAxisSize.min, children: [
+        CircleAvatar(radius: 4, backgroundColor: kPrimary),
+        SizedBox(width: 4),
+        Text('Cash', style: TextStyle(fontSize: 11, color: kMuted)),
+        SizedBox(width: 10),
+        CircleAvatar(radius: 4, backgroundColor: kBarterBar),
+        SizedBox(width: 4),
+        Text('Barter', style: TextStyle(fontSize: 11, color: kMuted)),
+      ]);
+
+  Widget _chart(List<CollabView> list, Period p) {
+    final series = monthlySeries(list, p);
+    final maxV = series.fold<double>(0, (a, e) => (e.$2 + e.$3) > a ? e.$2 + e.$3 : a);
     return BarChart(BarChartData(
       maxY: maxV <= 0 ? 1 : maxV * 1.15,
       gridData: const FlGridData(show: false),
       borderData: FlBorderData(show: false),
       barTouchData: BarTouchData(
         touchTooltipData: BarTouchTooltipData(
-          getTooltipItem: (group, gi, rod, ri) =>
-              BarTooltipItem(money(rod.toY), const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          getTooltipItem: (g, gi, rod, ri) => BarTooltipItem(
+            'Cash ${money(series[g.x].$2)}\nBarter ${money(series[g.x].$3)}',
+            const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+          ),
         ),
       ),
       titlesData: FlTitlesData(
@@ -184,68 +312,35 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            reservedSize: 24,
+            reservedSize: 22,
             getTitlesWidget: (v, meta) {
               final i = v.toInt();
-              if (i < 0 || i >= months.length) return const SizedBox.shrink();
+              if (i < 0 || i >= series.length) return const SizedBox.shrink();
+              final l = monthLabel(series[i].$1);
               return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(monthLabel(months[i]), style: const TextStyle(fontSize: 11, color: kMuted)));
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(series.length > 7 ? l.substring(0, 1) : l, style: const TextStyle(fontSize: 11, color: kMuted)),
+              );
             },
           ),
         ),
       ),
       barGroups: [
-        for (var i = 0; i < values.length; i++)
+        for (var i = 0; i < series.length; i++)
           BarChartGroupData(x: i, barRods: [
             BarChartRodData(
-                toY: values[i], width: 22, color: kPrimary, borderRadius: const BorderRadius.vertical(top: Radius.circular(4))),
+              toY: series[i].$2 + series[i].$3,
+              width: series.length > 7 ? 12 : 22,
+              borderRadius: BorderRadius.circular(6),
+              rodStackItems: [
+                BarChartRodStackItem(0, series[i].$2, kPrimary),
+                BarChartRodStackItem(series[i].$2, series[i].$2 + series[i].$3, kBarterBar),
+              ],
+              color: Colors.transparent,
+            ),
           ]),
       ],
     ));
-  }
-
-  Widget _upcoming(Snapshot s) {
-    final items = <(String, String, String, Color, CollabView)>[];
-    for (final c in s.collabs.where((c) => c.stage != kCancelled)) {
-      for (final d in c.deliverables) {
-        final name = '${str(d['type'])}${str(d['title']).isEmpty ? '' : ' · ${str(d['title'])}'}';
-        final st = str(d['status']);
-        final dd = daysFromToday(d['due_date']);
-        if (st != 'Live' && st != 'Approved' && dd >= 0 && dd <= 7) {
-          items.add((str(d['due_date']), '${c.brandName} · $name draft due', 'Draft', kWarn, c));
-        }
-        final ld = daysFromToday(d['live_date']);
-        if (st != 'Live' && ld >= 0 && ld <= 7) items.add((str(d['live_date']), '${c.brandName} · $name go-live', 'Live', kOk, c));
-      }
-      final due = c.dueDate;
-      final pd = daysFromToday(due);
-      if (c.pending > 0 && due != null && pd >= 0 && pd <= 7) {
-        items.add((due, '${c.brandName} · payment ${money(c.pending)}', 'Pay', kPrimary, c));
-      }
-      final na = daysFromToday(c.row['next_action_date']);
-      if (str(c.row['next_action']).isNotEmpty && na >= 0 && na <= 7) {
-        items.add((str(c.row['next_action_date']), '${c.brandName} · ${str(c.row['next_action'])}', 'Todo', kMuted, c));
-      }
-    }
-    items.sort((a, b) => a.$1.compareTo(b.$1));
-    if (items.isEmpty) {
-      return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8), child: Text('Nothing scheduled this week.', style: TextStyle(color: kMuted)));
-    }
-    return Column(
-      children: items
-          .map((e) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                leading: SizedBox(width: 56, child: Text(showDate(e.$1).replaceAll(RegExp(r' \d{4}$'), ''),
-                    style: const TextStyle(fontWeight: FontWeight.w600))),
-                title: Text(e.$2, maxLines: 2, overflow: TextOverflow.ellipsis),
-                trailing: Pill(e.$3, e.$4),
-                onTap: () => push(context, CollabDetailScreen(collabId: e.$5.id)),
-              ))
-          .toList(),
-    );
   }
 
   void _showList(_Attention a) {
@@ -253,19 +348,15 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
       context: context,
       showDragHandle: true,
       builder: (c) => SafeArea(
-        child: ListView(shrinkWrap: true, children: [
-          Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(a.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-          ...a.items.map((cv) => ListTile(
-                title: Text(cv.title),
-                subtitle: Text('${cv.brandName} · ${cv.stage}'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.pop(c);
-                  push(context, CollabDetailScreen(collabId: cv.id));
-                },
-              )),
+        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(a.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+          for (final cv in a.items) ...[
+            CollabRow(c: cv, thumb: 48, onTap: () {
+              Navigator.pop(c);
+              push(context, CollabDetailScreen(collabId: cv.id));
+            }),
+            const SizedBox(height: 8),
+          ],
         ]),
       ),
     );

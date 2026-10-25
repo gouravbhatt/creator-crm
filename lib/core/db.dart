@@ -2,13 +2,14 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import 'constants.dart';
 import 'security.dart';
 
 /// SQLCipher-encrypted database. Schema is versioned; add migrations in [_upgrade].
 class AppDb {
   AppDb._();
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
   static Database? _db;
 
   /// Parent tables first: used for backup export / restore order.
@@ -51,6 +52,7 @@ class AppDb {
       },
       onCreate: (d, v) async {
         await _createV1(d);
+        await normalizeV2(d);
       },
       onUpgrade: _upgrade,
     );
@@ -70,7 +72,23 @@ class AppDb {
   }
 
   static Future<void> _upgrade(Database d, int from, int to) async {
-    // Future: if (from < 2) { await d.execute('ALTER TABLE ...'); }
+    if (from < 2) await normalizeV2(d);
+  }
+
+  /// v2: 5 simple stages, deal types Barter / Paid / Barter + Paid, creator profile defaults.
+  /// Idempotent — also run after restoring an older backup.
+  static Future<void> normalizeV2(DatabaseExecutor d) async {
+    for (final e in kStageMigration.entries) {
+      await d.rawUpdate('UPDATE collabs SET stage = ? WHERE stage = ?', [e.value, e.key]);
+    }
+    await d.rawUpdate("UPDATE collabs SET deal_type = ? WHERE deal_type = 'Hybrid'", [kBoth]);
+    final defaults = <String, String>{'gst_registered': '0', 'max_images': '5', 'max_links': '5'};
+    for (final e in defaults.entries) {
+      await d.rawInsert('INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)', [e.key, e.value]);
+    }
+    // Existing GSTIN means the creator is registered.
+    await d.rawUpdate(
+        "UPDATE settings SET value = '1' WHERE key = 'gst_registered' AND EXISTS (SELECT 1 FROM settings WHERE key = 'profile_gstin' AND value <> '')");
   }
 
   static Future<void> _createV1(Database d) async {

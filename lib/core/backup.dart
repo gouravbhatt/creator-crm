@@ -157,6 +157,7 @@ class Backup {
         await batch.commit(noResult: true);
       }
     });
+    await AppDb.normalizeV2(db);
     if (replace) await Media.clearAll();
     for (final e in plan.media.entries) {
       await Media.writeBytes(e.key, e.value, overwrite: replace);

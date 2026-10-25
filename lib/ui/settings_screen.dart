@@ -172,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Limits & security')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 32), children: [
@@ -190,56 +190,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: const TextStyle(fontSize: 12, color: kMuted)),
                     const SizedBox(height: 8),
                     Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: _saveLimits, child: const Text('Save limits'))),
-                  ]),
-                ),
-              ),
-              SectionCard(
-                title: 'Invoice profile',
-                child: Form(
-                  key: _profile,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    textField(pName, 'Your name / business name'),
-                    textField(pAddress, 'Address', maxLines: 3, keyboard: TextInputType.multiline),
-                    textField(pGstin, 'GSTIN',
-                        keyboard: TextInputType.visiblePassword,
-                        validate: (t) => RegExp(r'^[0-9]{2}[A-Za-z0-9]{13}$').hasMatch(t) ? null : 'GSTIN is 15 characters'),
-                    textField(pPan, 'PAN',
-                        keyboard: TextInputType.visiblePassword,
-                        validate: (t) => RegExp(r'^[A-Za-z]{5}[0-9]{4}[A-Za-z]$').hasMatch(t) ? null : 'PAN format: ABCDE1234F'),
-                    emailField(pEmail),
-                    textField(pPhone, 'Phone', keyboard: TextInputType.phone),
-                    textField(pUpi, 'UPI ID (for QR on invoices)',
-                        keyboard: TextInputType.emailAddress,
-                        hint: 'name@bank',
-                        validate: (t) => RegExp(r'^[\w.\-]{2,}@[A-Za-z]{2,}$').hasMatch(t) ? null : 'Format: name@bank'),
-                    textField(invPrefix, 'Invoice number prefix'),
-                    textField(gstRate, 'Default GST rate (%)',
-                        keyboard: const TextInputType.numberWithOptions(decimal: true),
-                        validate: (t) {
-                          final v = double.tryParse(t);
-                          return v == null || v < 0 || v > 28 ? '0–28' : null;
-                        }),
-                    Row(children: [
-                      SizedBox(
-                        width: 120,
-                        height: 50,
-                        child: _signature.isEmpty
-                            ? const Center(child: Text('No signature', style: TextStyle(color: kMuted, fontSize: 12)))
-                            : MediaImage(_signature, fit: BoxFit.contain),
-                      ),
-                      const Spacer(),
-                      TextButton(onPressed: _pickSignature, child: Text(_signature.isEmpty ? 'Add signature/stamp' : 'Change')),
-                      if (_signature.isNotEmpty)
-                        IconButton(
-                            onPressed: () async {
-                              await Media.remove(_signature);
-                              await Repo.setSetting('signature_file', '');
-                              setState(() => _signature = '');
-                            },
-                            icon: const Icon(Icons.close)),
-                    ]),
-                    const SizedBox(height: 8),
-                    Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: _saveProfile, child: const Text('Save profile'))),
                   ]),
                 ),
               ),

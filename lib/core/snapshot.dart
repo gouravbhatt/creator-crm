@@ -14,9 +14,11 @@ class CollabView {
   final List<Rec> invoices;
   final List<Rec> expenses;
   final Map<String, List<Rec>> metricsByDeliverable;
+  final List<Rec> products;
+  final String? coverImage;
 
   CollabView(this.row, this.brandName, this.deliverables, this.receipts, this.invoices, this.expenses,
-      this.metricsByDeliverable);
+      this.metricsByDeliverable, this.products, this.coverImage);
 
   String get id => str(row['id']);
   String get title => str(row['title']);
@@ -24,18 +26,38 @@ class CollabView {
   String get dealType => str(row['deal_type']);
   bool get active => isActiveStage(stage);
   double get agreed => toD(row['agreed_amount']);
-  double get barterValue => toD(row['barter_value']);
+  bool get hasBarter => dealType != kPaid;
+  bool get hasCash => dealType != kBarter;
+
+  /// Barter value = linked products (price × qty) when any, otherwise the value typed on the collab.
+  double get barterValue {
+    if (!hasBarter) return 0;
+    if (products.isNotEmpty) {
+      return products.fold(0.0, (a, p) => a + toD(p['purchase_price']) * (toI(p['quantity']) <= 0 ? 1 : toI(p['quantity'])));
+    }
+    return toD(row['barter_value']);
+  }
+
+  /// Barter counts as earned once the deal is confirmed (and not cancelled).
+  double get barterEarned => (stage == 'Talking' || stage == kCancelled) ? 0 : barterValue;
+
+  /// Date used to place barter earnings in a period: posted date, else start date, else created.
+  DateTime? get barterDate =>
+      parseDate(postedDate) ?? parseDate(row['start_date']) ?? parseDate(str(row['created_at']).split('T').first);
+
+  double get totalValue => (hasCash ? agreed : 0) + barterValue;
+  double get earned => received + barterEarned;
   double get netReceived => receipts.fold(0.0, (a, r) => a + toD(r['amount']));
   double get tds => receipts.fold(0.0, (a, r) => a + toD(r['tds']));
 
   /// Settled = credited + TDS deducted at source.
   double get received => netReceived + tds;
-  double get pending => stage == kCancelled ? 0 : max(0.0, agreed - received);
+  double get pending => (stage == kCancelled || !hasCash) ? 0 : max(0.0, agreed - received);
   double get expenseTotal => expenses.fold(0.0, (a, r) => a + toD(r['amount']));
-  double get profit => received + barterValue - expenseTotal;
+  double get profit => received + barterEarned - expenseTotal;
   double get gstBilled => invoices.fold(0.0, (a, r) => a + toD(r['gst_amount']));
 
-  bool get isBarter => dealType == 'Barter';
+  bool get isBarter => dealType == kBarter;
 
   /// Date the first reel/post of this collab went live (null if nothing posted yet).
   String? get postedDate {
@@ -59,7 +81,8 @@ class CollabView {
 
   String get paymentStatus {
     if (stage == kCancelled) return 'Cancelled';
-    if (agreed <= 0) return dealType == 'Barter' ? 'Barter' : 'No amount';
+    if (!hasCash) return 'Barter';
+    if (agreed <= 0) return 'No amount';
     if (received >= agreed - 0.5) return 'Paid';
     if (dueDate != null && daysFromToday(dueDate) < 0) return 'Overdue';
     if (received > 0) return 'Partial';
@@ -110,9 +133,10 @@ class Snapshot {
   final List<Rec> invoices;
   final List<Rec> products;
   final Map<String, String> brandNames;
+  final Map<String, String> productImage;
 
   Snapshot(this.brands, this.contacts, this.collabs, this.deliverables, this.metrics, this.receipts, this.invoices,
-      this.products, this.brandNames);
+      this.products, this.brandNames, this.productImage);
 
   static Future<Snapshot> load() async {
     final brands = await Repo.all('brands', orderBy: 'name COLLATE NOCASE');
@@ -124,6 +148,11 @@ class Snapshot {
     final invs = await Repo.all('invoices', orderBy: 'invoice_date DESC');
     final exps = await Repo.all('expenses', orderBy: 'date DESC');
     final products = await Repo.all('products', orderBy: 'name COLLATE NOCASE');
+    final images = await Repo.all('product_images', orderBy: 'sort, created_at');
+    final firstImage = <String, String>{};
+    for (final i in images) {
+      firstImage.putIfAbsent(str(i['product_id']), () => str(i['file_name']));
+    }
 
     final names = {for (final b in brands) str(b['id']): str(b['name'])};
     List<Rec> by(List<Rec> l, String id) => l.where((e) => e['collab_id'] == id).toList();
@@ -135,9 +164,15 @@ class Snapshot {
       final id = str(c['id']);
       final ds = by(dels, id);
       final mm = {for (final d in ds) str(d['id']): mByD[str(d['id'])] ?? <Rec>[]};
-      return CollabView(c, names[str(c['brand_id'])] ?? 'Unknown brand', ds, by(pays, id), by(invs, id), by(exps, id), mm);
+      final ps = by(products, id);
+      String? cover;
+      for (final p in ps) {
+        cover ??= firstImage[str(p['id'])];
+      }
+      return CollabView(
+          c, names[str(c['brand_id'])] ?? 'Unknown brand', ds, by(pays, id), by(invs, id), by(exps, id), mm, ps, cover);
     }).toList();
-    return Snapshot(brands, contacts, views, dels, metrics, pays, invs, products, names);
+    return Snapshot(brands, contacts, views, dels, metrics, pays, invs, products, names, firstImage);
   }
 
   CollabView? collab(String id) {

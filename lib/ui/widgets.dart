@@ -261,7 +261,7 @@ class BarLine extends StatelessWidget {
 // ---------------- form fields ----------------
 
 InputDecoration deco(String label, {String? hint, Widget? suffix}) =>
-    InputDecoration(labelText: label, hintText: hint, suffixIcon: suffix, border: const OutlineInputBorder());
+    InputDecoration(labelText: label, hintText: hint, suffixIcon: suffix);
 
 class Gap extends StatelessWidget {
   const Gap({super.key});

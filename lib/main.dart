@@ -21,7 +21,8 @@ class CreatorCrmApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(seedColor: kPrimary);
+    final scheme = ColorScheme.fromSeed(seedColor: kPrimary, primary: kPrimary, surface: Colors.white);
+    final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(26));
     return MaterialApp(
       title: 'Creator CRM',
       debugShowCheckedModeBanner: false,
@@ -30,13 +31,47 @@ class CreatorCrmApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: scheme,
         scaffoldBackgroundColor: kBg,
-        appBarTheme: const AppBarTheme(backgroundColor: kBg, scrolledUnderElevation: 0, centerTitle: false),
+        textTheme: ThemeData.light().textTheme.apply(bodyColor: kInk, displayColor: kInk),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: kBg,
+          foregroundColor: kInk,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kInk, letterSpacing: -0.3),
+        ),
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
-        inputDecorationTheme: const InputDecorationTheme(filled: true, fillColor: Colors.white),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(shape: pill, textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(shape: pill, side: const BorderSide(color: kPrimary, width: 1.5)),
+        ),
+        chipTheme: ChipThemeData(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          side: BorderSide.none,
+          backgroundColor: Colors.white,
+          selectedColor: kInk,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+          secondaryLabelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          checkmarkColor: Colors.white,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: kPrimaryTint,
+          labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E0EC))),
+          enabledBorder:
+              OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E0EC))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: kPrimary, width: 1.6)),
+        ),
       ),
       home: const AuthGate(),
     );

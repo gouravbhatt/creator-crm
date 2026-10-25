@@ -21,7 +21,9 @@ class InvoiceScreen extends StatefulWidget {
 class _Item {
   final TextEditingController desc;
   final TextEditingController amount;
-  _Item(String d, double a)
+  final String link;
+  final String posted;
+  _Item(String d, double a, {this.link = '', this.posted = ''})
       : desc = TextEditingController(text: d),
         amount = TextEditingController(text: a == 0 ? '' : (a % 1 == 0 ? a.toInt().toString() : a.toStringAsFixed(2)));
 }
@@ -66,12 +68,14 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final r = toD(inv['gst_rate']);
       _gst = r > 0;
       if (r > 0) _gstRate = r;
-      _items = invoiceItems(inv).map((e) => _Item(str(e['desc']), toD(e['amount']))).toList();
+      _items = invoiceItems(inv)
+          .map((e) => _Item(str(e['desc']), toD(e['amount']), link: str(e['link']), posted: str(e['posted'])))
+          .toList();
     } else {
       number.text = await Repo.nextInvoiceNumber();
       date.text = todayIso();
       due.text = c.dueDate ?? isoDate(DateTime.now().add(const Duration(days: 30)));
-      _gst = (await Repo.setting('profile_gstin')).isNotEmpty;
+      _gst = (await Repo.setting('gst_registered', '0')) == '1';
       final ds = c.deliverables;
       if (ds.isEmpty) {
         _items = [_Item(c.title, c.agreed)];
@@ -79,7 +83,11 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
         final each = (c.agreed / ds.length * 100).roundToDouble() / 100;
         _items = ds
             .map((d) => _Item(
-                '${str(d['type'])} on ${str(d['platform'])}${str(d['title']).isEmpty ? '' : ' – ${str(d['title'])}'}', each))
+                  '${str(d['platform'])} ${str(d['type'])}${str(d['title']).isEmpty ? '' : ' ${str(d['title'])}'}',
+                  each,
+                  link: str(d['live_link']),
+                  posted: d['status'] == 'Live' ? str(d['live_date']) : '',
+                ))
             .toList();
       }
     }
@@ -110,7 +118,9 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       'number': number.text.trim(),
       'invoice_date': date.text.isEmpty ? todayIso() : date.text,
       'due_date': nn(due),
-      'items': jsonEncode(_items.map((i) => {'desc': i.desc.text.trim(), 'amount': toD(i.amount.text)}).toList()),
+      'items': jsonEncode(_items
+          .map((i) => {'desc': i.desc.text.trim(), 'amount': toD(i.amount.text), 'link': i.link, 'posted': i.posted})
+          .toList()),
       'subtotal': _subtotal,
       'gst_rate': _gst ? _gstRate : 0,
       'gst_amount': _gstAmount,
@@ -138,12 +148,8 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     try {
       final inv = await Repo.byId('invoices', _id!);
       final c = _c!;
-      final file = await InvoicePdf.build(
-        invoice: inv!,
-        brand: _brand,
-        collabTitle: c.title,
-        alreadyReceived: c.received,
-      );
+      final contact = str(c.row['contact_id']).isEmpty ? null : await Repo.byId('contacts', str(c.row['contact_id']));
+      final file = await InvoicePdf.build(invoice: inv!, brand: _brand, collab: c, contact: contact);
       await Share.shareXFiles([XFile(file.path, mimeType: 'application/pdf')], subject: 'Invoice ${number.text.trim()}');
       if (_status == 'Draft') {
         _status = 'Sent';
@@ -250,7 +256,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                     KV('Total', money(_total)),
                     if ((_c?.received ?? 0) > 0) KV('Already received', money(_c!.received)),
                     const SizedBox(height: 4),
-                    const Text('UPI QR, your GSTIN/PAN and signature come from Settings › Invoice profile.',
+                    const Text('Your photo, @handle, address, UPI QR and PAN come from Profile.',
                         style: TextStyle(color: kMuted, fontSize: 12)),
                   ]),
                 ),

@@ -266,7 +266,7 @@ class _BrandDetailScreenState extends State<BrandDetailScreen> with AutoReload {
           child: Column(
             children: collabs.isEmpty
                 ? [const Text('No collabs yet.', style: TextStyle(color: kMuted))]
-                : collabs.map((c) => CollabCard(c: c)).toList(),
+                : collabs.map((c) => Padding(padding: const EdgeInsets.only(bottom: 8), child: CollabCard(c: c))).toList(),
           ),
         ),
         SectionCard(
