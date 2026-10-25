@@ -152,6 +152,57 @@ class MediaImage extends StatelessWidget {
   }
 }
 
+/// Product row with thumbnail, name, price and quantity. Used on collab and brand pages.
+class ProductTile extends StatelessWidget {
+  final Rec product;
+  final String? imageFile;
+  final int linkCount;
+  const ProductTile({super.key, required this.product, this.imageFile, this.linkCount = 0});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = product;
+    final priceV = toD(p['purchase_price']);
+    final qtyV = toI(p['quantity']);
+    final sub = [
+      if (str(p['category']).isNotEmpty) str(p['category']),
+      if (qtyV > 1) 'Qty $qtyV',
+      if (linkCount > 0) '$linkCount link${linkCount == 1 ? '' : 's'}',
+    ].join(' · ');
+    return InkWell(
+      onTap: () => push(context, ProductDetailScreen(productId: str(p['id']))),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: imageFile == null
+                ? Container(
+                    decoration: BoxDecoration(color: const Color(0xFFEEF0F3), borderRadius: BorderRadius.circular(10)),
+                    child: const Icon(Icons.inventory_2_outlined, color: kMuted),
+                  )
+                : MediaImage(imageFile!),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(str(p['name']), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (sub.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(sub, style: const TextStyle(fontSize: 12, color: kMuted)),
+              ],
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Text(priceV > 0 ? money(priceV) : '—', style: const TextStyle(fontWeight: FontWeight.w700)),
+          const Icon(Icons.chevron_right, color: kMuted),
+        ]),
+      ),
+    );
+  }
+}
+
 class ProductFormScreen extends StatefulWidget {
   final String? productId;
   final String? brandId;

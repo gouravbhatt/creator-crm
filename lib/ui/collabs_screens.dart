@@ -433,6 +433,8 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
   Rec? _contact;
   List<Rec> _activity = [];
   List<Rec> _products = [];
+  Map<String, String> _productImage = {};
+  Map<String, int> _productLinks = {};
   bool _gone = false;
 
   @override
@@ -446,7 +448,19 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
     final b = await Repo.byId('brands', str(c.row['brand_id']));
     final ct = str(c.row['contact_id']).isEmpty ? null : await Repo.byId('contacts', str(c.row['contact_id']));
     final act = await Repo.all('activity', where: 'collab_id = ?', args: [c.id], orderBy: 'created_at DESC');
-    final prods = await Repo.all('products', where: 'collab_id = ?', args: [c.id]);
+    final prods = await Repo.all('products', where: 'collab_id = ?', args: [c.id], orderBy: 'name COLLATE NOCASE');
+    final ids = prods.map((p) => str(p['id'])).toList();
+    final img = <String, String>{};
+    final links = <String, int>{};
+    if (ids.isNotEmpty) {
+      final marks = List.filled(ids.length, '?').join(',');
+      for (final r in await Repo.all('product_images', where: 'product_id IN ($marks)', args: ids, orderBy: 'sort, created_at')) {
+        img.putIfAbsent(str(r['product_id']), () => str(r['file_name']));
+      }
+      for (final r in await Repo.all('product_links', where: 'product_id IN ($marks)', args: ids)) {
+        links[str(r['product_id'])] = (links[str(r['product_id'])] ?? 0) + 1;
+      }
+    }
     if (mounted) {
       setState(() {
         _c = c;
@@ -454,6 +468,8 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
         _contact = ct;
         _activity = act;
         _products = prods;
+        _productImage = img;
+        _productLinks = links;
       });
     }
   }
@@ -597,6 +613,23 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
         ]),
       ),
       SectionCard(
+        title: 'Products${_products.isEmpty ? '' : ' (${_products.length})'}',
+        trailing: TextButton(
+            onPressed: () => push(context, ProductFormScreen(brandId: str(c.row['brand_id']), collabId: c.id)),
+            child: const Text('+ Add')),
+        child: _products.isEmpty
+            ? const Text('No products yet. Tap + Add and paste a product link to auto-fill image, name and price.',
+                style: TextStyle(color: kMuted))
+            : Column(
+                children: _products
+                    .map((p) => ProductTile(
+                          product: p,
+                          imageFile: _productImage[str(p['id'])],
+                          linkCount: _productLinks[str(p['id'])] ?? 0,
+                        ))
+                    .toList()),
+      ),
+      SectionCard(
         title: 'People',
         child: Column(children: [
           KV('Brand', str(_brand?['name']), onTap: _brand == null ? null : () => push(context, BrandDetailScreen(brandId: str(_brand!['id'])))),
@@ -626,24 +659,6 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
                 .toList(),
           ),
         ),
-      SectionCard(
-        title: 'Products',
-        trailing: TextButton(
-            onPressed: () => push(context, ProductFormScreen(brandId: str(c.row['brand_id']), collabId: c.id)),
-            child: const Text('+ Add')),
-        child: _products.isEmpty
-            ? const Text('No products linked.', style: TextStyle(color: kMuted))
-            : Column(
-                children: _products
-                    .map((p) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(str(p['name'])),
-                          subtitle: Text(str(p['category'])),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => push(context, ProductDetailScreen(productId: str(p['id']))),
-                        ))
-                    .toList()),
-      ),
       if (str(c.row['notes']).isNotEmpty) SectionCard(title: 'Notes', child: Text(str(c.row['notes']))),
     ]);
   }
