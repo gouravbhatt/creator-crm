@@ -9,6 +9,8 @@ sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.m
 M=android/app/src/main/AndroidManifest.xml
 grep -q 'android:allowBackup' "$M" || sed -i 's/<application/<application android:allowBackup="false"/' "$M"
 sed -i 's/android:label="creator_crm"/android:label="Creator CRM"/' "$M"
+# Internet is used only for the optional "auto-fill from product link" feature.
+grep -q 'android.permission.INTERNET' "$M" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
 
 S=android/settings.gradle
 if [ -f "$S" ]; then

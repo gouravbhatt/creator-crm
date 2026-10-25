@@ -29,6 +29,14 @@ class Media {
     return name;
   }
 
+  /// Saves downloaded image bytes into app storage and returns the stored file name.
+  static Future<String> importBytes(List<int> bytes, String ext) async {
+    final name = '${AppDb.newId()}$ext';
+    final d = await dir();
+    await File(p.join(d.path, name)).writeAsBytes(bytes, flush: true);
+    return name;
+  }
+
   static Future<File> file(String name) async => File(p.join((await dir()).path, p.basename(name)));
 
   static Future<bool> exists(String name) async => (await file(name)).exists();

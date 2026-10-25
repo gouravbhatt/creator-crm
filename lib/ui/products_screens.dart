@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../core/constants.dart';
 import '../core/format.dart';
+import '../core/link_preview.dart';
 import '../core/media.dart';
 import '../core/repo.dart';
 import 'widgets.dart';
@@ -172,12 +173,93 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       category = TextEditingController(),
       price = TextEditingController(),
       qty = TextEditingController(text: '1'),
-      notes = TextEditingController();
+      notes = TextEditingController(),
+      fetchUrl = TextEditingController();
+  LinkPreview? _preview;
+  final Set<String> _pickedImages = {};
+  bool _fetching = false;
+  bool _saving = false;
+  String? _newBrandName;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _fetch() async {
+    final url = fetchUrl.text.trim();
+    if (!isValidUrl(url)) {
+      toast(context, 'Paste a full product link starting with https://');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _fetching = true);
+    try {
+      final p = await LinkPreview.fetch(url);
+      if (!mounted) return;
+      final maxImages = await Repo.settingInt('max_images', 5);
+      setState(() {
+        _preview = p;
+        _pickedImages
+          ..clear()
+          ..addAll(p.images.take(maxImages.clamp(1, 3).toInt()));
+        if (p.title != null) name.text = p.title!;
+        if (p.description != null && description.text.trim().isEmpty) description.text = p.description!;
+        if (p.category != null && category.text.trim().isEmpty) category.text = p.category!;
+        if (p.price != null && price.text.trim().isEmpty) {
+          price.text = p.price! % 1 == 0 ? p.price!.toInt().toString() : p.price!.toStringAsFixed(2);
+        }
+        _newBrandName = null;
+        final b = (p.brand ?? '').trim();
+        if (b.isNotEmpty && _brandId == null) {
+          final match = _brands.where((x) => str(x['name']).toLowerCase() == b.toLowerCase()).toList();
+          if (match.isNotEmpty) {
+            _brandId = str(match.first['id']);
+          } else {
+            _newBrandName = b;
+          }
+        }
+      });
+      toast(context, 'Details filled from ${p.siteName ?? Uri.parse(url).host}. Review before saving.');
+    } catch (e) {
+      if (mounted) toast(context, e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _fetching = false);
+    }
+  }
+
+  Future<void> _attachFetched(String productId) async {
+    final p = _preview;
+    final url = fetchUrl.text.trim();
+    if (p == null && !isValidUrl(url)) return;
+    final maxImages = await Repo.settingInt('max_images', 5);
+    final maxLinks = await Repo.settingInt('max_links', 5);
+    var imgCount = await Repo.count('product_images', where: 'product_id = ?', args: [productId]);
+    var failed = 0;
+    for (final u in (p?.images ?? <String>[]).where(_pickedImages.contains)) {
+      if (imgCount >= maxImages) break;
+      final file = await LinkPreview.downloadImage(u);
+      if (file == null) {
+        failed++;
+        continue;
+      }
+      await Repo.save('product_images', {'product_id': productId, 'file_name': file, 'sort': imgCount++});
+    }
+    if (isValidUrl(url)) {
+      final exists = await Repo.count('product_links', where: 'product_id = ? AND url = ?', args: [productId, url]);
+      final links = await Repo.count('product_links', where: 'product_id = ?', args: [productId]);
+      if (exists == 0 && links < maxLinks) {
+        await Repo.save('product_links', {
+          'product_id': productId,
+          'url': url,
+          'title': p?.siteName ?? Uri.parse(url).host.replaceFirst('www.', ''),
+          'link_type': 'Shopping',
+          'sort': links,
+        });
+      }
+    }
+    if (failed > 0 && mounted) toast(context, '$failed image(s) could not be downloaded');
   }
 
   Future<void> _load() async {
@@ -201,7 +283,12 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
+    if (_saving) return;
+    setState(() => _saving = true);
     final isNew = widget.productId == null;
+    if (_brandId == null && _newBrandName != null) {
+      _brandId = await Repo.save('brands', {'name': _newBrandName});
+    }
     final id = await Repo.save('products', {
       'id': widget.productId,
       'brand_id': _brandId,
@@ -213,7 +300,9 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       'quantity': qty.text.trim().isEmpty ? 1 : toI(qty.text),
       'notes': nn(notes),
     });
+    await _attachFetched(id);
     if (!mounted) return;
+    setState(() => _saving = false);
     final nav = Navigator.of(context);
     nav.pop(id);
     if (isNew) nav.push(MaterialPageRoute(builder: (_) => ProductDetailScreen(productId: id)));
@@ -225,14 +314,29 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.productId == null ? 'New product' : 'Edit product'),
-        actions: [TextButton(onPressed: _loading ? null : _save, child: const Text('Save'))],
+        actions: [
+          TextButton(
+            onPressed: _loading || _saving ? null : _save,
+            child: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _form,
               child: ListView(padding: const EdgeInsets.all(16), children: [
+                _fetchCard(),
                 textField(name, 'Product name', req: true),
+                if (_newBrandName != null && _brandId == null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InputChip(
+                      avatar: const Icon(Icons.add_business_outlined, size: 18),
+                      label: Text('New brand "$_newBrandName" will be created'),
+                      onDeleted: () => setState(() => _newBrandName = null),
+                    ),
+                  ),
                 Pick(
                   label: 'Brand',
                   value: _brandId,
@@ -259,6 +363,84 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 textField(notes, 'Notes', maxLines: 3, keyboard: TextInputType.multiline),
               ]),
             ),
+    );
+  }
+
+  Widget _fetchCard() {
+    final p = _preview;
+    return SectionCard(
+      title: 'Auto-fill from product link',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: TextField(
+              controller: fetchUrl,
+              keyboardType: TextInputType.url,
+              decoration: deco('Paste Amazon, Flipkart, Nykaa, brand site… link'),
+              onSubmitted: (_) => _fetch(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 56,
+            child: FilledButton(
+              onPressed: _fetching ? null : _fetch,
+              child: _fetching
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Fetch'),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+            p == null
+                ? 'Needs internet just for this step. Fills name, description, brand, price and images; the link is saved to the product.'
+                : 'Tap images to choose which to save (${_pickedImages.length} selected).',
+            style: const TextStyle(fontSize: 12, color: kMuted)),
+        if (p != null && p.images.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 96,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: p.images.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final u = p.images[i];
+                final on = _pickedImages.contains(u);
+                return InkWell(
+                  onTap: () => setState(() => on ? _pickedImages.remove(u) : _pickedImages.add(u)),
+                  child: Stack(children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: on ? kPrimary : const Color(0xFFE3E5EA), width: on ? 3 : 1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          u,
+                          fit: BoxFit.cover,
+                          headers: const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36'},
+                          errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_outlined, color: kMuted)),
+                        ),
+                      ),
+                    ),
+                    if (on)
+                      const Positioned(
+                        right: 4,
+                        top: 4,
+                        child: CircleAvatar(radius: 10, backgroundColor: kPrimary, child: Icon(Icons.check, size: 14, color: Colors.white)),
+                      ),
+                  ]),
+                );
+              },
+            ),
+          ),
+        ],
+      ]),
     );
   }
 }
