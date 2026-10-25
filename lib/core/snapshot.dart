@@ -35,6 +35,18 @@ class CollabView {
   double get profit => received + barterValue - expenseTotal;
   double get gstBilled => invoices.fold(0.0, (a, r) => a + toD(r['gst_amount']));
 
+  bool get isBarter => dealType == 'Barter';
+
+  /// Date the first reel/post of this collab went live (null if nothing posted yet).
+  String? get postedDate {
+    final l = deliverables
+        .where((d) => d['status'] == 'Live' && str(d['live_date']).isNotEmpty)
+        .map((d) => str(d['live_date']))
+        .toList()
+      ..sort();
+    return l.isEmpty ? null : l.first;
+  }
+
   int get liveCount => deliverables.where((d) => d['status'] == 'Live').length;
   int get approvedOrLive => deliverables.where((d) => d['status'] == 'Approved' || d['status'] == 'Live').length;
 

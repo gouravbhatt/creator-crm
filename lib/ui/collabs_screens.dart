@@ -194,10 +194,19 @@ class CollabCard extends StatelessWidget {
             ]),
             const Divider(height: 18),
             Row(children: [
-              Text(money(c.agreed), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-              const SizedBox(width: 6),
-              Text(ps == 'Paid' || ps == 'Barter' ? ps : '$ps · ${money(c.pending)} due',
-                  style: TextStyle(fontSize: 12, color: paymentStatusColor(ps))),
+              if (c.isBarter) ...[
+                Icon(c.postedDate == null ? Icons.schedule : Icons.check_circle, size: 14,
+                    color: c.postedDate == null ? kMuted : kOk),
+                const SizedBox(width: 4),
+                Text(c.postedDate == null ? 'Not posted yet' : 'Posted ${showDate(c.postedDate)}',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c.postedDate == null ? kMuted : kOk)),
+                if (c.barterValue > 0) Text(' · worth ${money(c.barterValue)}', style: const TextStyle(fontSize: 12, color: kMuted)),
+              ] else ...[
+                Text(money(c.agreed), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 6),
+                Text(ps == 'Paid' ? ps : '$ps · ${money(c.pending)} due',
+                    style: TextStyle(fontSize: 12, color: paymentStatusColor(ps))),
+              ],
               const Spacer(),
               if (next != null)
                 Flexible(
@@ -590,15 +599,28 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
       SectionCard(
         title: 'Deal',
         child: Column(children: [
-          Row(children: [
-            Expanded(child: _money3('Agreed', money(c.agreed), const Color(0xFFF3F4F6))),
-            const SizedBox(width: 8),
-            Expanded(child: _money3('Received', money(c.received), const Color(0xFFE5F4EC))),
-            const SizedBox(width: 8),
-            Expanded(child: _money3('Pending', money(c.pending), const Color(0xFFFCEBEA))),
-          ]),
+          if (c.isBarter)
+            Row(children: [
+              Expanded(child: _money3('Product value', money(c.barterValue), const Color(0xFFF3F4F6))),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _money3('Reel posted', c.postedDate == null ? 'Not yet' : showDate(c.postedDate),
+                      c.postedDate == null ? const Color(0xFFFDF0E6) : const Color(0xFFE5F4EC))),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _money3('Live', '${c.liveCount} / ${c.deliverables.length}', const Color(0xFFE8ECFC))),
+            ])
+          else
+            Row(children: [
+              Expanded(child: _money3('Agreed', money(c.agreed), const Color(0xFFF3F4F6))),
+              const SizedBox(width: 8),
+              Expanded(child: _money3('Received', money(c.received), const Color(0xFFE5F4EC))),
+              const SizedBox(width: 8),
+              Expanded(child: _money3('Pending', money(c.pending), const Color(0xFFFCEBEA))),
+            ]),
           const SizedBox(height: 8),
-          KV('Payment status', c.paymentStatus),
+          if (!c.isBarter) KV('Payment status', c.paymentStatus),
+          if (!c.isBarter) KV('Reel posted', c.postedDate == null ? 'Not yet' : showDate(c.postedDate)),
           KV('Campaign', str(c.row['campaign'])),
           if (c.barterValue > 0) KV('Barter value', money(c.barterValue)),
           KV('Source', str(c.row['source'])),
