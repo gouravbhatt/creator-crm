@@ -50,11 +50,16 @@ class _HomeShellState extends State<HomeShell> {
           boxShadow: [BoxShadow(color: Color(0x0F17142B), blurRadius: 20, offset: Offset(0, -4))],
         ),
         child: SafeArea(
-          child: Row(children: [
+          top: false,
+          child: SizedBox(
+            height: 68,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             item(0, Icons.space_dashboard_outlined, Icons.space_dashboard, 'Home'),
             item(1, Icons.handshake_outlined, Icons.handshake, 'Collabs'),
             Expanded(
-              child: Center(
+              child: Align(
+                alignment: Alignment.center,
+                heightFactor: 1,
                 child: Material(
                   color: kPrimary,
                   shape: const CircleBorder(),
@@ -70,7 +75,8 @@ class _HomeShellState extends State<HomeShell> {
             ),
             item(2, Icons.insights_outlined, Icons.insights, 'Reports'),
             item(3, Icons.person_outline, Icons.person, 'Profile'),
-          ]),
+            ]),
+          ),
         ),
       ),
     );

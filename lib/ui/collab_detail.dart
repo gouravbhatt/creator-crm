@@ -326,6 +326,25 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
           Row(children: [
             Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
             Pill(isLive ? 'Posted' : (st == 'Revision' ? 'Revision ${toI(d['revision_count'])}' : st), deliverableStatusColor(st)),
+            SizedBox(
+              width: 36,
+              height: 32,
+              child: PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.more_vert, size: 20),
+                tooltip: 'Post options',
+                onSelected: (v) => _postAction(c, d, v),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Edit / change type'), dense: true)),
+                  if (!isLive)
+                    const PopupMenuItem(value: 'live', child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('Mark as posted'), dense: true)),
+                  const PopupMenuItem(value: 'duplicate', child: ListTile(leading: Icon(Icons.copy_outlined), title: Text('Add one more like this'), dense: true)),
+                  const PopupMenuItem(
+                      value: 'delete',
+                      child: ListTile(leading: Icon(Icons.delete_outline, color: kDanger), title: Text('Delete', style: TextStyle(color: kDanger)), dense: true)),
+                ],
+              ),
+            ),
           ]),
           const SizedBox(height: 8),
           Container(
@@ -360,6 +379,35 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
         ]),
       ),
     );
+  }
+
+  Future<void> _postAction(CollabView c, Rec d, String action) async {
+    final id = str(d['id']);
+    final name = '${str(d['type'])}${str(d['title']).isEmpty ? '' : ' ${str(d['title'])}'}';
+    switch (action) {
+      case 'edit':
+      case 'live':
+        await push(context, DeliverableScreen(collabId: c.id, deliverableId: id));
+        break;
+      case 'duplicate':
+        await Repo.save('deliverables', {
+          'collab_id': c.id,
+          'type': d['type'],
+          'platform': d['platform'],
+          'due_date': d['due_date'],
+          'status': 'Planned',
+          'revision_count': 0,
+        });
+        await Repo.log(c.id, 'Post added: ${str(d['type'])}');
+        Repo.notify();
+        break;
+      case 'delete':
+        if (!await confirm(context, 'Delete $name?', 'Its links, checklist and views will be removed.')) return;
+        await Repo.delete('deliverables', id);
+        await Repo.log(c.id, 'Post deleted: $name');
+        Repo.notify();
+        break;
+    }
   }
 
   Widget _productsPanel(CollabView c) {
