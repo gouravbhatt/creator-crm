@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/constants.dart';
 import '../core/earnings.dart';
 import '../core/format.dart';
+import '../core/repo.dart';
 import '../core/snapshot.dart';
 import 'backup_screen.dart';
 import 'dashboard_screen.dart' show incomeBarChart;
