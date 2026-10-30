@@ -29,7 +29,7 @@ String toCsv(List<String> headers, List<List<Object?>> rows) {
 }
 
 class CsvExport {
-  static const List<String> sets = ['Brands', 'Contacts', 'Collabs', 'Deliverables', 'Payments', 'Products', 'Product links'];
+  static const List<String> sets = ['Brands', 'Contacts', 'Collabs', 'Deliverables', 'Payments', 'Affiliate & other income', 'Products', 'Product links'];
 
   static Future<List<File>> export(Set<String> which) async {
     final s = await Snapshot.load();
@@ -55,15 +55,15 @@ class CsvExport {
     if (which.contains('Collabs')) {
       await write(
           'Collabs',
-          ['Title', 'Brand', 'Campaign', 'Deal type', 'Stage', 'Agreed', 'Received', 'TDS', 'Pending', 'Payment status',
-           'Barter value', 'Expenses', 'Start', 'End', 'Publish', 'Payment due', 'Usage rights until', 'Exclusivity until',
-           'Deliverables', 'Live', 'Notes'],
+          ['Title', 'Brand', 'Type', 'Source', 'Agency', 'Agency %', 'Contact', 'Stage', 'Fee (gross)', 'Fee received', 'TDS',
+           'Product value', 'Refund amount', 'Refund received', 'Pending', 'Payment status', 'You earn', 'Expenses',
+           'Order #', 'Order date', 'Post by', 'Payment due', 'Usage rights until', 'Deliverables', 'Live', 'Notes'],
           s.collabs
               .map((c) => [
-                    c.title, c.brandName, c.row['campaign'], c.dealType, c.stage, c.agreed, c.received, c.tds, c.pending,
-                    c.paymentStatus, c.barterValue, c.expenseTotal, c.row['start_date'], c.row['end_date'],
-                    c.row['publish_date'], c.dueDate, c.row['usage_rights_until'], c.row['exclusivity_until'],
-                    c.deliverables.length, c.liveCount, c.row['notes'],
+                    c.title, c.brandName, c.kind, c.source, c.agencyName, c.agencyPct, c.contact?['name'], c.stage, c.agreed,
+                    c.feeReceived, c.tds, c.hasBarter ? c.barterValue : 0, c.refundAmount, c.refundReceived, c.pending,
+                    c.paymentStatus, c.totalValue, c.expenseTotal, c.row['order_no'], c.row['order_date'], c.row['publish_date'],
+                    c.dueDate, c.row['usage_rights_until'], c.deliverables.length, c.liveCount, c.row['notes'],
                   ])
               .toList());
     }
@@ -79,11 +79,15 @@ class CsvExport {
           }).toList());
     }
     if (which.contains('Payments')) {
-      await write('Payments', ['Received date', 'Collab', 'Brand', 'Amount credited', 'TDS', 'Method', 'Reference', 'Notes'],
+      await write('Payments', ['Received date', 'Collab', 'Brand', 'Kind', 'Amount credited', 'TDS', 'Method', 'Reference', 'Notes'],
           s.receipts.map((r) {
             final c = s.collab(str(r['collab_id']));
-            return [r['received_date'], c?.title, c?.brandName, r['amount'], r['tds'], r['method'], r['reference'], r['notes']];
+            return [r['received_date'], c?.title, c?.brandName, r['kind'] ?? 'Fee', r['amount'], r['tds'], r['method'], r['reference'], r['notes']];
           }).toList());
+    }
+    if (which.contains('Affiliate & other income')) {
+      await write('Income', ['Month', 'Type', 'Platform', 'Gross', 'TDS', 'Paid to bank', 'Status', 'Paid on', 'Notes'],
+          s.income.map((r) => [r['month'], r['source_type'], r['platform'], r['gross'], r['tds'], r['net_paid'], r['status'], r['paid_date'], r['notes']]).toList());
     }
     if (which.contains('Products')) {
       await write('Products', ['Name', 'Brand', 'Category', 'Purchase price', 'Quantity', 'Description', 'Notes'],

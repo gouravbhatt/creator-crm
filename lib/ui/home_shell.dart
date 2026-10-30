@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import '../core/constants.dart';
 import 'collabs_screens.dart';
 import 'dashboard_screen.dart';
-import 'profile_screen.dart';
+import 'income_screen.dart';
 import 'reports_screen.dart';
-import 'widgets.dart';
+import 'type_picker.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -14,15 +14,15 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _tab = 0; // 0 home, 1 collabs, 2 reports, 3 profile
+  int _tab = 0; // 0 home, 1 collabs, 2 income, 3 reports
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       DashboardScreen(onOpenTab: (i) => setState(() => _tab = i)),
       const CollabsScreen(),
+      const IncomeScreen(),
       const ReportsScreen(),
-      const ProfileScreen(),
     ];
     Widget item(int i, IconData icon, IconData active, String label) {
       final on = _tab == i;
@@ -53,28 +53,28 @@ class _HomeShellState extends State<HomeShell> {
           top: false,
           child: SizedBox(
             height: 68,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            item(0, Icons.space_dashboard_outlined, Icons.space_dashboard, 'Home'),
-            item(1, Icons.handshake_outlined, Icons.handshake, 'Collabs'),
-            Expanded(
-              child: Align(
-                alignment: Alignment.center,
-                heightFactor: 1,
-                child: Material(
-                  color: kPrimary,
-                  shape: const CircleBorder(),
-                  elevation: 4,
-                  shadowColor: kPrimary.withOpacity(0.5),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => push(context, const CollabFormScreen()),
-                    child: const SizedBox(width: 54, height: 54, child: Icon(Icons.add, color: Colors.white, size: 30)),
+            child: Row(children: [
+              item(0, Icons.space_dashboard_outlined, Icons.space_dashboard, 'Home'),
+              item(1, Icons.handshake_outlined, Icons.handshake, 'Collabs'),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.center,
+                  heightFactor: 1,
+                  child: Material(
+                    color: kPrimary,
+                    shape: const CircleBorder(),
+                    elevation: 4,
+                    shadowColor: kPrimary.withOpacity(0.5),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => showAddSheet(context),
+                      child: const SizedBox(width: 54, height: 54, child: Icon(Icons.add, color: Colors.white, size: 30)),
+                    ),
                   ),
                 ),
               ),
-            ),
-            item(2, Icons.insights_outlined, Icons.insights, 'Reports'),
-            item(3, Icons.person_outline, Icons.person, 'Profile'),
+              item(2, Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Income'),
+              item(3, Icons.insights_outlined, Icons.insights, 'Reports'),
             ]),
           ),
         ),

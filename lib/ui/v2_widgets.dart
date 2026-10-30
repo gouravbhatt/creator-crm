@@ -108,7 +108,12 @@ class ProductThumb extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(color: typeTint(type), borderRadius: BorderRadius.circular(radius)),
-      child: Icon(type == kPaid ? Icons.campaign_outlined : Icons.inventory_2_outlined, color: typeColor(type), size: size * 0.42),
+      child: Icon(
+          type == kUgc
+              ? Icons.videocam_outlined
+              : (type == kEvent ? Icons.event_outlined : (kindHasProduct(type) ? Icons.inventory_2_outlined : Icons.campaign_outlined)),
+          color: typeColor(type),
+          size: size * 0.42),
     );
     final f = fileName;
     if (f == null || f.isEmpty) return placeholder;
@@ -174,17 +179,18 @@ class CollabRow extends StatelessWidget {
   const CollabRow({super.key, required this.c, required this.onTap, this.thumb = 72});
 
   String get amountText {
-    if (c.dealType == kBoth) return '${money(c.agreed)} + ${money(c.barterValue)}';
-    if (c.dealType == kBarter) return money(c.barterValue);
-    return money(c.agreed);
+    if (c.hasCash && c.hasBarter && c.barterValue > 0 && !c.isOrder) return '${money(c.feeNet)} + ${money(c.barterValue)}';
+    if (!c.hasCash && c.hasBarter) return money(c.barterValue);
+    return money(c.totalValue);
   }
 
   (String, Color) get meta {
     if (c.stage == kCancelled) return ('Cancelled', kDanger);
-    if (c.pending > 0 && c.paymentStatus == 'Overdue') return ('${money(c.pending)} overdue', kDanger);
+    if (c.pending > 0.5 && c.paymentStatus == 'Overdue') return ('${money(c.pending)} overdue', kDanger);
+    if (c.pendingRefund > 0.5 && c.orderPlaced) return ('Refund ${money(c.pendingRefund)} due', kAmberDark);
     final posted = c.postedDate;
-    if (posted != null && c.pending <= 0) return ('Posted ${showDate(posted)}', kBothC);
-    if (c.pending > 0 && posted != null) return ('${money(c.pending)} due', kWarn);
+    if (posted != null && c.pending <= 0.5) return ('${c.isUgc ? 'Delivered' : 'Posted'} ${showDate(posted)}', kMintDark);
+    if (c.pending > 0.5 && posted != null) return ('${money(c.pending)} due', kAmberDark);
     final n = c.nextAction;
     if (n != null && n.$2.isNotEmpty) return ('${n.$1} · ${showDate(n.$2)}', daysFromToday(n.$2) < 0 ? kDanger : kMuted);
     return ('', kMuted);
@@ -209,7 +215,7 @@ class CollabRow extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Expanded(
-                    child: Text(c.brandName,
+                    child: Text(c.source.isEmpty ? c.brandName : '${c.brandName} · ${c.agencyName.isNotEmpty ? c.agencyName : c.source}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kMuted)),
@@ -225,7 +231,7 @@ class CollabRow extends StatelessWidget {
                   const SizedBox(width: 8),
                   CircleAvatar(radius: 4, backgroundColor: stageColor(c.stage)),
                   const SizedBox(width: 4),
-                  Text(c.stage, style: const TextStyle(fontSize: 11, color: Color(0xFF3B3753))),
+                  Text(stageLabel(c.stage), style: const TextStyle(fontSize: 11, color: kBody)),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(m.$1,

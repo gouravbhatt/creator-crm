@@ -7,6 +7,7 @@ import '../core/snapshot.dart';
 import 'collabs_screens.dart';
 import 'contacts_screens.dart';
 import 'products_screens.dart';
+import 'type_picker.dart';
 import 'widgets.dart';
 
 class BrandsScreen extends StatefulWidget {
@@ -262,7 +263,7 @@ class _BrandDetailScreenState extends State<BrandDetailScreen> with AutoReload {
         SectionCard(
           title: 'Collabs (${collabs.length})',
           trailing: TextButton(
-              onPressed: () => push(context, CollabFormScreen(brandId: widget.brandId)), child: const Text('+ Add')),
+              onPressed: () => showAddSheet(context, brandId: widget.brandId), child: const Text('+ Add')),
           child: Column(
             children: collabs.isEmpty
                 ? [const Text('No collabs yet.', style: TextStyle(color: kMuted))]

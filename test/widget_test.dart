@@ -2,6 +2,8 @@ import 'package:creator_crm/core/csv_export.dart';
 import 'package:creator_crm/core/format.dart';
 import 'package:creator_crm/core/invoice_pdf.dart';
 import 'package:creator_crm/core/security.dart';
+import 'package:creator_crm/core/snapshot.dart';
+import 'package:creator_crm/core/constants.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -41,8 +43,58 @@ void main() {
     });
   });
 
+  group('money model', () {
+    test('order & refund with total including product', () {
+      final c = _cv({'deal_type': kOrder, 'fee_mode': kFeeIncl, 'agreed_amount': 1500, 'refund_amount': 800, 'order_no': 'X'});
+      expect(c.pendingFee, 1500);
+      expect(c.pendingRefund, 800);
+      expect(c.pending, 2300);
+      expect(c.moneyOut, 800);
+      expect(c.totalValue, 2300);
+      expect(c.barterEarned, 0); // product counts only once refunded
+    });
+    test('refund received is not income, fee is', () {
+      final c = _cv({'deal_type': kOrder, 'fee_mode': kFeeTop, 'agreed_amount': 1500, 'refund_amount': 800, 'order_no': 'X'}, receipts: [
+        {'kind': 'Refund', 'amount': 800, 'tds': 0, 'received_date': '2026-10-01'},
+        {'kind': 'Fee', 'amount': 1350, 'tds': 150, 'received_date': '2026-10-05'},
+      ]);
+      expect(c.received, 1500);
+      expect(c.refundReceived, 800);
+      expect(c.pending, 0);
+      expect(c.barterEarned, 800);
+      expect(c.earned, 2300);
+      expect(c.paymentStatus, 'Paid');
+    });
+    test('agency cut reduces what brand owes', () {
+      final c = _cv({'deal_type': kPaid, 'agreed_amount': 10000, 'agency_pct': 15});
+      expect(c.agencyCut, 1500);
+      expect(c.pendingFee, 8500);
+    });
+    test('barter value from products', () {
+      final c = _cv({'deal_type': kBarter, 'agreed_amount': 0}, products: [
+        {'purchase_price': 1200, 'quantity': 2},
+      ]);
+      expect(c.hasCash, false);
+      expect(c.barterValue, 2400);
+      expect(c.barterEarned, 2400);
+      expect(c.paymentStatus, 'Barter');
+    });
+    test('add-ons add to fee', () {
+      final c = _cv({'deal_type': kUgc, 'agreed_amount': 3000, 'addons': '[{"name":"Ad rights","amount":1000}]'});
+      expect(c.agreed, 4000);
+      expect(c.pendingFee, 4000);
+    });
+  });
+
   test('UPI uri encodes values', () {
     final u = upiUri(upiId: 'me@okicici', name: 'A B', amount: 1500, note: 'INV/2026-27/001');
     expect(u, startsWith('upi://pay?pa=me%40okicici&pn=A%20B&am=1500.00'));
   });
 }
+
+// ---------------- v3 money model ----------------
+// ignore_for_file: prefer_const_constructors
+CollabView _cv(Map<String, dynamic> row, {List<Map<String, dynamic>> receipts = const [], List<Map<String, dynamic>> products = const []}) =>
+    CollabView({'id': 'c1', 'title': 't', 'stage': 'Posted', ...row}, 'Brand', const [], receipts, const [], const [], const {}, products, null, null);
+
+

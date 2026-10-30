@@ -39,7 +39,9 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings > ci-logs/analyze.log 2>&1 || true
 
       - name: Unit tests
-        run: flutter test > ci-logs/test.log 2>&1 || true
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee ci-logs/test.log
 
       - name: Build release APK
         run: |
@@ -61,13 +63,13 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: creator-crm-apk
+          name: collabook-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Creator CRM build ${{ github.run_number }}
-          body: Release APK built from ${{ github.sha }}. Download app-release.apk and install on Android 6.0+.
+          name: Collabook build ${{ github.run_number }}
+          body: Collabook release APK built from ${{ github.sha }}. Signed with the permanent Collabook key, so it installs over earlier Collabook builds. Android 6.0+.
           files: build/app/outputs/flutter-apk/app-release.apk

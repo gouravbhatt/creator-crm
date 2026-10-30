@@ -91,7 +91,7 @@ class _BackupScreenState extends State<BackupScreen> {
     });
     try {
       final bytes = await Backup.build(pw);
-      final name = 'creator_crm_${todayIso()}.ccrm';
+      final name = 'collabook_${todayIso()}.ccrm';
       final tmp = File(p.join((await getTemporaryDirectory()).path, name));
       await tmp.writeAsBytes(bytes, flush: true);
       await Repo.setSetting('last_backup_at', DateTime.now().toIso8601String());
@@ -228,7 +228,7 @@ class _BackupScreenState extends State<BackupScreen> {
     });
     try {
       final files = await CsvExport.export(_csv);
-      await Share.shareXFiles(files.map((f) => XFile(f.path, mimeType: 'text/csv')).toList(), subject: 'Creator CRM export');
+      await Share.shareXFiles(files.map((f) => XFile(f.path, mimeType: 'text/csv')).toList(), subject: 'Collabook export');
       if (mounted) setState(() => _status = '${files.length} CSV file(s) exported.');
     } catch (e) {
       if (mounted) setState(() => _status = 'CSV export failed: $e');

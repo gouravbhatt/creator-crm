@@ -174,7 +174,41 @@ class Vault {
     return rk;
   }
 
-  static Future<void> wipe() => _storage.delete(key: _key);
+  static Future<void> wipe() async {
+    await _storage.delete(key: _key);
+    await _storage.delete(key: _quickKey);
+  }
+
+  // ---------- quick unlock (fingerprint / stay unlocked) ----------
+  // The DB key is kept in Android Keystore-backed storage only when the user turns this on.
+  static const String _quickKey = 'ccrm_quick_v1';
+  static const String quickBio = 'bio';
+  static const String quickStay = 'stay';
+
+  static Future<String> quickMode() async {
+    final v = await _storage.read(key: _quickKey);
+    if (v == null) return '';
+    try {
+      return (jsonDecode(v) as Map)['mode']?.toString() ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  static Future<Uint8List?> quickKey() async {
+    final v = await _storage.read(key: _quickKey);
+    if (v == null) return null;
+    try {
+      return base64Decode((jsonDecode(v) as Map)['key'] as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> setQuick(String mode, List<int> dbKey) =>
+      _storage.write(key: _quickKey, value: jsonEncode({'mode': mode, 'key': base64Encode(dbKey)}));
+
+  static Future<void> clearQuick() => _storage.delete(key: _quickKey);
 }
 
 /// Holds the unlocked database key for the session only.

@@ -225,7 +225,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(children: [
               _link(Icons.backup_outlined, 'Backup, restore & export', const BackupScreen()),
-              _link(Icons.tune, 'Limits & security', const SettingsScreen()),
+              _link(Icons.fingerprint, 'Lock, fingerprint & limits', const SettingsScreen()),
               ListTile(leading: const Icon(Icons.lock_outline), title: const Text('Lock now'), onTap: AuthGate.lockNow),
             ]),
           ),

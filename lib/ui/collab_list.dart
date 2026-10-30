@@ -4,7 +4,7 @@ import '../core/constants.dart';
 import '../core/format.dart';
 import '../core/snapshot.dart';
 import 'collab_detail.dart';
-import 'collab_form.dart';
+import 'type_picker.dart';
 import 'v2_widgets.dart';
 import 'widgets.dart';
 
@@ -20,7 +20,7 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
   Snapshot? _s;
   String _q = '';
   late String _filter = widget.initialFilter;
-  static const _filters = ['All', 'Active', kBarter, kPaid, kBoth, 'To post', 'Unpaid', 'Done', kCancelled];
+  static const _filters = ['All', 'Active', 'To post', 'Unpaid', 'Refund due', ...kDealTypes, 'Done', kCancelled];
 
   @override
   Future<void> reload() async {
@@ -34,10 +34,8 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
       case 'Active':
         if (!c.active) return false;
         break;
-      case kBarter:
-      case kPaid:
-      case kBoth:
-        if (c.dealType != _filter) return false;
+      case 'Refund due':
+        if (c.pendingRefund <= 0.5) return false;
         break;
       case 'To post':
         if (c.stage == kCancelled || c.deliverables.isEmpty || c.liveCount >= c.deliverables.length) return false;
@@ -49,11 +47,14 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
       case kCancelled:
         if (c.stage != _filter) return false;
         break;
+      default:
+        if (kDealTypes.contains(_filter) && c.kind != _filter) return false;
     }
     final q = _q.toLowerCase().trim();
     if (q.isEmpty) return true;
     return [
-      c.title, c.brandName, c.stage, c.dealType, str(c.row['campaign']), str(c.row['notes']),
+      c.title, c.brandName, c.stage, c.dealType, c.source, c.agencyName, str(c.row['campaign']), str(c.row['notes']),
+      str(c.row['order_no']), str(c.contact?['name']),
       ...c.products.map((p) => str(p['name'])),
       ...c.deliverables.map((d) => '${str(d['live_link'])} ${str(d['draft_link'])}'),
     ].join(' ').toLowerCase().contains(q);
@@ -80,7 +81,7 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
       ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'fab_collabs_${widget.brandId ?? 'all'}',
-        onPressed: () => push(context, CollabFormScreen(brandId: widget.brandId)),
+        onPressed: () => showAddSheet(context, brandId: widget.brandId),
         icon: const Icon(Icons.add),
         label: const Text('New collab', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
@@ -89,7 +90,7 @@ class _CollabsScreenState extends State<CollabsScreen> with AutoReload {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
           child: TextField(
             decoration: const InputDecoration(
-              hintText: 'Search brand, product, reel link',
+              hintText: 'Search brand, product, contact, order #, link',
               prefixIcon: Icon(Icons.search),
               border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(16))),
               enabledBorder: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(16))),

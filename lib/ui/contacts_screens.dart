@@ -35,7 +35,7 @@ class _ContactsScreenState extends State<ContactsScreen> with AutoReload {
     final list = (_rows ?? [])
         .where((c) =>
             q.isEmpty ||
-            [c['name'], c['email'], c['phone'], c['role'], _brands[str(c['brand_id'])], c['notes']]
+            [c['name'], c['email'], c['phone'], c['role'], c['company'], c['instagram'], _brands[str(c['brand_id'])], c['notes']]
                 .map(str)
                 .join(' ')
                 .toLowerCase()
@@ -116,6 +116,8 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
       email = TextEditingController(),
       phone = TextEditingController(),
       role = TextEditingController(),
+      instagram = TextEditingController(),
+      company = TextEditingController(),
       notes = TextEditingController();
 
   @override
@@ -133,6 +135,8 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
       email.text = str(c['email']);
       phone.text = str(c['phone']);
       role.text = str(c['role']);
+      instagram.text = str(c['instagram']);
+      company.text = str(c['company']);
       notes.text = str(c['notes']);
       _brandId = c['brand_id'] as String?;
     }
@@ -148,6 +152,8 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
       'email': nn(email),
       'phone': nn(phone),
       'role': nn(role),
+      'instagram': nn(instagram)?.replaceFirst('@', ''),
+      'company': nn(company),
       'notes': nn(notes),
     });
     if (mounted) Navigator.pop(context);
@@ -187,6 +193,8 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
                   onChanged: (v) => setState(() => _brandId = v),
                 ),
                 textField(role, 'Role', hint: 'Brand manager, agency, PR…'),
+                textField(company, 'Company / agency'),
+                textField(instagram, 'Instagram', hint: '@handle', keyboard: TextInputType.text),
                 emailField(email),
                 textField(phone, 'Phone', keyboard: TextInputType.phone),
                 textField(notes, 'Notes', maxLines: 4, keyboard: TextInputType.multiline),

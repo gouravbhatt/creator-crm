@@ -23,7 +23,8 @@ class _Item {
   final TextEditingController amount;
   final String link;
   final String posted;
-  _Item(String d, double a, {this.link = '', this.posted = ''})
+  final String group; // 'fee' or 'refund'
+  _Item(String d, double a, {this.link = '', this.posted = '', this.group = 'fee'})
       : desc = TextEditingController(text: d),
         amount = TextEditingController(text: a == 0 ? '' : (a % 1 == 0 ? a.toInt().toString() : a.toStringAsFixed(2)));
 }
@@ -69,7 +70,8 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       _gst = r > 0;
       if (r > 0) _gstRate = r;
       _items = invoiceItems(inv)
-          .map((e) => _Item(str(e['desc']), toD(e['amount']), link: str(e['link']), posted: str(e['posted'])))
+          .map((e) => _Item(str(e['desc']), toD(e['amount']),
+              link: str(e['link']), posted: str(e['posted']), group: str(e['group']).isEmpty ? 'fee' : str(e['group'])))
           .toList();
     } else {
       number.text = await Repo.nextInvoiceNumber();
@@ -77,25 +79,47 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       due.text = c.dueDate ?? isoDate(DateTime.now().add(const Duration(days: 30)));
       _gst = (await Repo.setting('gst_registered', '0')) == '1';
       final ds = c.deliverables;
-      if (ds.isEmpty) {
-        _items = [_Item(c.title, c.agreed)];
-      } else {
-        final each = (c.agreed / ds.length * 100).roundToDouble() / 100;
-        _items = ds
-            .map((d) => _Item(
-                  '${str(d['platform'])} ${str(d['type'])}${str(d['title']).isEmpty ? '' : ' ${str(d['title'])}'}',
-                  each,
-                  link: str(d['live_link']),
-                  posted: d['status'] == 'Live' ? str(d['live_date']) : '',
-                ))
-            .toList();
+      _items = [];
+      if (c.baseFee > 0) {
+        if (ds.isEmpty) {
+          _items.add(_Item(c.title, c.baseFee));
+        } else {
+          final each = (c.baseFee / ds.length * 100).roundToDouble() / 100;
+          for (final d in ds) {
+            _items.add(_Item(
+              '${isUgcDeliverable(d) ? 'UGC video' : '${str(d['platform'])} ${str(d['type'])}'}${str(d['title']).isEmpty ? '' : ' ${str(d['title'])}'}',
+              each,
+              link: str(d['live_link']),
+              posted: d['status'] == 'Live' ? str(d['live_date']) : '',
+            ));
+          }
+        }
       }
+      for (final a in c.addons) {
+        _items.add(_Item('${str(a['name'])}${str(a['detail']).isEmpty ? '' : ' · ${str(a['detail'])}'}', toD(a['amount'])));
+      }
+      if (c.isOrder && c.refundAmount > 0) {
+        final prod = c.products.isEmpty ? 'Product' : c.products.map((p) => str(p['name'])).join(', ');
+        _items.add(_Item(
+          '$prod — bought by creator',
+          c.refundAmount,
+          link: [
+            if (str(c.row['order_site']).isNotEmpty) str(c.row['order_site']),
+            if (str(c.row['order_no']).isNotEmpty) 'order #${str(c.row['order_no'])}',
+          ].join(' · '),
+          posted: str(c.row['order_date']),
+          group: 'refund',
+        ));
+      }
+      if (_items.isEmpty) _items.add(_Item(c.title, c.agreed));
     }
     if (mounted) setState(() => _loading = false);
   }
 
   double get _subtotal => _items.fold(0.0, (a, i) => a + toD(i.amount.text));
-  double get _gstAmount => _gst ? (_subtotal * _gstRate / 100 * 100).roundToDouble() / 100 : 0;
+  double get _feeSubtotal => _items.where((i) => i.group != 'refund').fold(0.0, (a, i) => a + toD(i.amount.text));
+  double get _refundSubtotal => _subtotal - _feeSubtotal;
+  double get _gstAmount => _gst ? (_feeSubtotal * _gstRate / 100 * 100).roundToDouble() / 100 : 0;
   double get _total => _subtotal + _gstAmount;
 
   Future<bool> _save() async {
@@ -119,7 +143,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       'invoice_date': date.text.isEmpty ? todayIso() : date.text,
       'due_date': nn(due),
       'items': jsonEncode(_items
-          .map((i) => {'desc': i.desc.text.trim(), 'amount': toD(i.amount.text), 'link': i.link, 'posted': i.posted})
+          .map((i) => {'desc': i.desc.text.trim(), 'amount': toD(i.amount.text), 'link': i.link, 'posted': i.posted, 'group': i.group})
           .toList()),
       'subtotal': _subtotal,
       'gst_rate': _gst ? _gstRate : 0,
@@ -224,7 +248,9 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                   child: Column(children: [
                     for (var i = 0; i < _items.length; i++)
                       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(flex: 3, child: textField(_items[i].desc, 'Description', req: true)),
+                        Expanded(
+                            flex: 3,
+                            child: textField(_items[i].desc, _items[i].group == 'refund' ? 'Product reimbursement' : 'Description', req: true)),
                         const SizedBox(width: 8),
                         Expanded(
                           flex: 2,
@@ -251,7 +277,8 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                       value: _gst,
                       onChanged: (v) => setState(() => _gst = v),
                     ),
-                    KV('Subtotal', money(_subtotal)),
+                    KV('Fee & rights', money(_feeSubtotal)),
+                    if (_refundSubtotal > 0) KV('Product reimbursement', money(_refundSubtotal)),
                     if (_gst) KV('GST', money(_gstAmount)),
                     KV('Total', money(_total)),
                     if ((_c?.received ?? 0) > 0) KV('Already received', money(_c!.received)),

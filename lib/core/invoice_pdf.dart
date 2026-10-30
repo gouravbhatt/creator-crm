@@ -73,7 +73,8 @@ class InvoicePdf {
     final gstRate = toD(invoice['gst_rate']);
     final gst = toD(invoice['gst_amount']);
     final total = toD(invoice['total']);
-    final received = collab.received;
+    final received = collab.feeReceived + collab.refundReceived;
+    final refundTotal = items.where((it) => str(it['group']) == 'refund').fold<double>(0, (a, it) => a + toD(it['amount']));
     final due = (total - received) < 0 ? 0.0 : total - received;
     final photo = await _img(st['profile_photo']);
     final signature = await _img(st['signature_file']);
@@ -179,32 +180,43 @@ class InvoicePdf {
                     color: _bg,
                     padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     child: pw.Row(children: [
-                      pw.Expanded(child: pw.Text('DELIVERABLE', style: t(9, c: _muted, bold: true))),
-                      pw.SizedBox(width: 90, child: pw.Text('POSTED', style: t(9, c: _muted, bold: true))),
+                      pw.Expanded(child: pw.Text('ITEM', style: t(9, c: _muted, bold: true))),
+                      pw.SizedBox(width: 90, child: pw.Text('DATE', style: t(9, c: _muted, bold: true))),
                       pw.SizedBox(width: 90, child: pw.Text('AMOUNT', textAlign: pw.TextAlign.right, style: t(9, c: _muted, bold: true))),
                     ]),
                   ),
-                  for (final it in items)
-                    pw.Container(
-                      decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                      child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                        pw.Expanded(
-                          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                            pw.Text(str(it['desc']), style: t(11, bold: true)),
-                            if (str(it['link']).isNotEmpty) pw.Text(str(it['link']), style: t(8, c: _violet)),
+                  for (final g in ['fee', 'refund'])
+                    if (items.any((it) => (str(it['group']).isEmpty ? 'fee' : str(it['group'])) == g)) ...[
+                      if (items.any((it) => str(it['group']) == 'refund'))
+                        pw.Container(
+                          alignment: pw.Alignment.centerLeft,
+                          decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
+                          padding: const pw.EdgeInsets.fromLTRB(12, 8, 12, 0),
+                          child: pw.Text(g == 'fee' ? 'CONTENT & RIGHTS' : 'PRODUCT REIMBURSEMENT',
+                              style: t(8, c: g == 'fee' ? _violet : PdfColor.fromHex('#B54708'), bold: true)),
+                        ),
+                      for (final it in items.where((it) => (str(it['group']).isEmpty ? 'fee' : str(it['group'])) == g))
+                        pw.Container(
+                          decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
+                          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                          child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                            pw.Expanded(
+                              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                                pw.Text(str(it['desc']), style: t(11, bold: true)),
+                                if (str(it['link']).isNotEmpty) pw.Text(str(it['link']), style: t(8, c: g == 'fee' ? _violet : _muted)),
+                              ]),
+                            ),
+                            pw.SizedBox(width: 90, child: pw.Text(str(it['posted']).isEmpty ? '-' : showDate(it['posted']), style: t(10, c: _muted))),
+                            pw.SizedBox(width: 90, child: pw.Text(_rs(toD(it['amount'])), textAlign: pw.TextAlign.right, style: t(11, bold: true))),
                           ]),
                         ),
-                        pw.SizedBox(width: 90, child: pw.Text(str(it['posted']).isEmpty ? '-' : showDate(it['posted']), style: t(10, c: _muted))),
-                        pw.SizedBox(width: 90, child: pw.Text(_rs(toD(it['amount'])), textAlign: pw.TextAlign.right, style: t(11, bold: true))),
-                      ]),
-                    ),
+                    ],
                 ]),
               ),
               pw.SizedBox(height: 14),
               pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 pw.Expanded(
-                  child: collab.hasBarter && collab.products.isNotEmpty
+                  child: collab.hasBarter && collab.products.isNotEmpty && !collab.isOrder
                       ? pw.Container(
                           padding: const pw.EdgeInsets.all(10),
                           decoration: pw.BoxDecoration(color: _pinkSoft, borderRadius: pw.BorderRadius.circular(8)),
@@ -216,13 +228,24 @@ class InvoicePdf {
                                 style: t(9, c: _muted)),
                           ]),
                         )
-                      : pw.SizedBox(),
+                      : (refundTotal > 0
+                          ? pw.Container(
+                              padding: const pw.EdgeInsets.all(10),
+                              decoration: pw.BoxDecoration(color: PdfColor.fromHex('#FFF1E5'), borderRadius: pw.BorderRadius.circular(8)),
+                              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                                pw.Text('Reimbursement is not a fee', style: t(10, c: PdfColor.fromHex('#8A3A06'), bold: true)),
+                                pw.SizedBox(height: 2),
+                                pw.Text('It repays the product cost paid by the creator. GST, if any, applies to fees only.', style: t(9, c: _muted)),
+                              ]),
+                            )
+                          : pw.SizedBox()),
                 ),
                 pw.SizedBox(width: 20),
                 pw.SizedBox(
                   width: 220,
                   child: pw.Column(children: [
-                    totalRow('Subtotal', _rs(subtotal)),
+                    if (refundTotal > 0) totalRow('Fee & rights', _rs(subtotal - refundTotal)),
+                    if (refundTotal > 0) totalRow('Reimbursement', _rs(refundTotal)) else totalRow('Subtotal', _rs(subtotal)),
                     if (gstRate > 0) totalRow('GST @ ${gstRate.toStringAsFixed(gstRate % 1 == 0 ? 0 : 1)}%', _rs(gst)),
                     if (received > 0) totalRow('Received', '- ${_rs(received)}'),
                     pw.SizedBox(height: 4),

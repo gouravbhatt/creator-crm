@@ -24,7 +24,7 @@ class CreatorCrmApp extends StatelessWidget {
     final scheme = ColorScheme.fromSeed(seedColor: kPrimary, primary: kPrimary, surface: Colors.white);
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(26));
     return MaterialApp(
-      title: 'Creator CRM',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       navigatorKey: rootNavKey,
       theme: ThemeData(
@@ -53,11 +53,11 @@ class CreatorCrmApp extends StatelessWidget {
         chipTheme: ChipThemeData(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           side: BorderSide.none,
-          backgroundColor: Colors.white,
-          selectedColor: kInk,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w600),
-          secondaryLabelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-          checkmarkColor: Colors.white,
+          backgroundColor: const Color(0xFFF1EFF7),
+          selectedColor: kPrimaryTint,
+          labelStyle: const TextStyle(color: kInk, fontWeight: FontWeight.w600),
+          secondaryLabelStyle: const TextStyle(color: kPrimaryDark, fontWeight: FontWeight.w700),
+          checkmarkColor: kPrimaryDark,
         ),
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: Colors.white,
@@ -116,7 +116,18 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     final exists = await Vault.exists();
-    setState(() => _gate = exists ? _Gate.locked : _Gate.setup);
+    if (exists && await Vault.quickMode() == Vault.quickStay) {
+      final k = await Vault.quickKey();
+      if (k != null) {
+        try {
+          await onUnlocked(k, await Vault.username());
+          return;
+        } catch (_) {
+          await Vault.clearQuick();
+        }
+      }
+    }
+    if (mounted) setState(() => _gate = exists ? _Gate.locked : _Gate.setup);
   }
 
   @override
@@ -128,7 +139,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       _pausedAt = null;
       if (_gate == _Gate.unlocked && _autoLockMinutes > 0 && p != null &&
           DateTime.now().difference(p).inMinutes >= _autoLockMinutes) {
-        _lock();
+        Vault.quickMode().then((m) {
+          if (m != Vault.quickStay) _lock();
+        });
       }
     }
   }
@@ -137,12 +150,12 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     await AppDb.open(dbKey);
     Session.dbKey = Uint8List.fromList(dbKey);
     Session.user = user;
-    _autoLockMinutes = await Repo.settingInt('auto_lock_minutes', 5);
+    _autoLockMinutes = await Repo.settingInt('auto_lock_minutes', 30);
     if (mounted) setState(() => _gate = _Gate.unlocked);
   }
 
   Future<void> refreshAutoLock() async {
-    _autoLockMinutes = await Repo.settingInt('auto_lock_minutes', 5);
+    _autoLockMinutes = await Repo.settingInt('auto_lock_minutes', 30);
   }
 
   Future<void> _lock() async {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 
 import '../core/constants.dart';
 import '../core/db.dart';
@@ -21,14 +22,9 @@ class _Brand extends StatelessWidget {
   const _Brand(this.subtitle);
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(color: kPrimary, borderRadius: BorderRadius.circular(14)),
-          child: const Icon(Icons.handshake_outlined, color: Colors.white, size: 28),
-        ),
+        ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.asset('assets/logo.png', width: 60, height: 60)),
         const SizedBox(height: 16),
-        const Text('Creator CRM', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        const Text(kAppName, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.6)),
         const SizedBox(height: 4),
         Text(subtitle, style: const TextStyle(color: kMuted)),
         const SizedBox(height: 24),
@@ -178,6 +174,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _pw = TextEditingController();
   bool _busy = false;
   bool _show = false;
+  bool _bio = false;
+  bool _usePassword = false;
+  String _name = '';
   int _fails = 0;
   DateTime? _blockedUntil;
   String? _error;
@@ -185,9 +184,51 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    Vault.username().then((u) {
-      if (mounted) setState(() => _user.text = u);
+    _init();
+  }
+
+  Future<void> _init() async {
+    final u = await Vault.username();
+    final mode = await Vault.quickMode();
+    if (!mounted) return;
+    setState(() {
+      _user.text = u;
+      _name = u;
+      _bio = mode == Vault.quickBio;
+      _usePassword = !_bio;
     });
+    if (_bio) _fingerprint();
+  }
+
+  Future<void> _fingerprint() async {
+    setState(() => _error = null);
+    try {
+      final auth = LocalAuthentication();
+      final ok = await auth.authenticate(
+        localizedReason: 'Unlock $kAppName',
+        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
+      );
+      if (!ok) return;
+      final key = await Vault.quickKey();
+      if (key == null) {
+        setState(() {
+          _usePassword = true;
+          _error = 'Fingerprint needs to be set up again. Use your password.';
+        });
+        return;
+      }
+      setState(() => _busy = true);
+      await widget.onUnlocked(key, _user.text.trim());
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _usePassword = true;
+          _error = 'Fingerprint not available. Use your password.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _login() async {
@@ -217,41 +258,87 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const soft = Color(0xFFC9C5DC);
+    InputDecoration dark(String l, {Widget? suffix}) => InputDecoration(
+          labelText: l,
+          labelStyle: const TextStyle(color: soft),
+          filled: true,
+          fillColor: const Color(0x14FFFFFF),
+          suffixIcon: suffix,
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0x33FFFFFF))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF9D87FF), width: 1.6)),
+        );
     return Scaffold(
+      backgroundColor: kInk,
       body: SafeArea(
-        child: ListView(padding: const EdgeInsets.all(24), children: [
-          const _Brand('Unlock your workspace'),
-          TextField(controller: _user, decoration: deco('Username')),
-          const Gap(),
-          TextField(
-            controller: _pw,
-            obscureText: !_show,
-            onSubmitted: (_) => _login(),
-            decoration: deco('Password',
-                suffix: IconButton(
-                    icon: Icon(_show ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _show = !_show))),
-          ),
+        child: ListView(padding: const EdgeInsets.fromLTRB(28, 72, 28, 28), children: [
+          Center(child: ClipRRect(borderRadius: BorderRadius.circular(22), child: Image.asset('assets/logo.png', width: 84, height: 84))),
+          const SizedBox(height: 18),
+          const Center(child: Text(kAppName, style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.8))),
+          Center(child: Text(_name.isEmpty ? kTagline : 'Welcome back, $_name', style: const TextStyle(color: soft))),
+          const SizedBox(height: 56),
+          if (_bio && !_usePassword) ...[
+            Center(
+              child: Material(
+                color: const Color(0x14FFFFFF),
+                shape: const CircleBorder(side: BorderSide(color: kPrimary, width: 2)),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _busy ? null : _fingerprint,
+                  child: const SizedBox(width: 88, height: 88, child: Icon(Icons.fingerprint, color: Colors.white, size: 46)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Center(child: Text('Touch to unlock', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => setState(() => _usePassword = true),
+                child: const Text('Use password instead', style: TextStyle(color: soft)),
+              ),
+            ),
+          ] else ...[
+            TextField(controller: _user, style: const TextStyle(color: Colors.white), decoration: dark('Username')),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _pw,
+              obscureText: !_show,
+              style: const TextStyle(color: Colors.white),
+              onSubmitted: (_) => _login(),
+              decoration: dark('Password',
+                  suffix: IconButton(
+                      icon: Icon(_show ? Icons.visibility_off : Icons.visibility, color: soft),
+                      onPressed: () => setState(() => _show = !_show))),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _busy ? null : _login,
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54), backgroundColor: kPrimary),
+              child: _busy
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Unlock'),
+            ),
+            if (_bio)
+              TextButton.icon(
+                onPressed: _fingerprint,
+                icon: const Icon(Icons.fingerprint, color: soft),
+                label: const Text('Use fingerprint', style: TextStyle(color: soft)),
+              ),
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecoverScreen(onUnlocked: widget.onUnlocked))),
+              child: const Text('Forgot password? Use recovery key', style: TextStyle(color: soft)),
+            ),
+          ],
           if (_error != null)
             Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(_error!, style: const TextStyle(color: kDanger))),
-          const Gap(),
-          FilledButton(
-            onPressed: _busy ? null : _login,
-            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-            child: _busy
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Unlock'),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _busy
-                ? null
-                : () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => RecoverScreen(onUnlocked: widget.onUnlocked))),
-            child: const Text('Forgot password? Use recovery key'),
-          ),
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFFB4A8))),
+            ),
+          const SizedBox(height: 40),
+          const Center(child: Text('Your data never leaves this phone · encrypted', style: TextStyle(color: Color(0xFF8A85A3), fontSize: 11))),
         ]),
       ),
     );

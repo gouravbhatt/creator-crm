@@ -18,6 +18,7 @@ class DeliverableScreen extends StatefulWidget {
 }
 
 class _DeliverableScreenState extends State<DeliverableScreen> {
+  bool get _ugc => _type == 'UGC video' || _type == 'Raw footage' || _platform == 'Brand (UGC)';
   final _form = GlobalKey<FormState>();
   bool _loading = true;
   String? _id;
@@ -80,7 +81,9 @@ class _DeliverableScreenState extends State<DeliverableScreen> {
     var status = _status;
     if (liveUrl.isNotEmpty && status != 'Live') {
       if (!mounted) return false;
-      final mark = await confirm(context, 'Mark as Live?', 'A live link was added. Set status to Live?', ok: 'Mark Live', danger: false);
+      final mark = await confirm(context, _ugc ? 'Mark as delivered?' : 'Mark as posted?',
+          _ugc ? 'A file link was added. Mark this video as delivered?' : 'A live link was added. Mark this as posted?',
+          ok: _ugc ? 'Delivered' : 'Posted', danger: false);
       if (mark) status = 'Live';
     }
     final isNew = _id == null;
@@ -199,7 +202,7 @@ class _DeliverableScreenState extends State<DeliverableScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_id == null ? 'New deliverable' : 'Deliverable'),
+        title: Text(_id == null ? 'New post / video' : (_ugc ? 'UGC video' : 'Post')),
         actions: [
           if (_id != null) IconButton(onPressed: _delete, icon: const Icon(Icons.delete_outline), tooltip: 'Delete'),
           TextButton(onPressed: _loading ? null : () => _save(), child: const Text('Save')),
@@ -220,8 +223,8 @@ class _DeliverableScreenState extends State<DeliverableScreen> {
                         options: kPlatforms,
                         onChanged: (v) => setState(() => _platform = v ?? _platform)),
                     textField(title, 'Title / label', hint: 'e.g. Launch reel 1'),
-                    DateField(due, 'Draft due'),
-                    DateField(liveDate, 'Go-live date'),
+                    DateField(due, _ugc ? 'Deliver by' : 'Post by'),
+                    DateField(liveDate, _ugc ? 'Delivered on' : 'Posted on'),
                   ]),
                 ),
                 SectionCard(
@@ -232,8 +235,13 @@ class _DeliverableScreenState extends State<DeliverableScreen> {
                       runSpacing: 6,
                       children: kDeliverableStatuses
                           .map((st) => ChoiceChip(
-                                label: Text(st),
+                                label: Text(st == 'Live' ? (_ugc ? 'Delivered' : 'Posted') : st,
+                                    style: TextStyle(
+                                        color: _status == st ? Colors.white : kInk, fontWeight: FontWeight.w600)),
                                 selected: _status == st,
+                                showCheckmark: false,
+                                selectedColor: st == 'Live' ? kMintDark : kPrimary,
+                                backgroundColor: const Color(0xFFF1EFF7),
                                 onSelected: (_) => setState(() {
                                   if (st == 'Revision' && _status != 'Revision') _revisions++;
                                   _status = st;
@@ -258,7 +266,7 @@ class _DeliverableScreenState extends State<DeliverableScreen> {
                   title: 'Links',
                   child: Column(children: [
                     _linkRow(draft, 'Draft link'),
-                    _linkRow(live, 'Live link (reel / post URL)'),
+                    _linkRow(live, _ugc ? 'Delivered file link (Drive / WeTransfer)' : 'Live link (reel / post URL)'),
                   ]),
                 ),
                 SectionCard(

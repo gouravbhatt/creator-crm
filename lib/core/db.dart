@@ -9,7 +9,7 @@ import 'security.dart';
 class AppDb {
   AppDb._();
 
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
   static Database? _db;
 
   /// Parent tables first: used for backup export / restore order.
@@ -27,6 +27,7 @@ class AppDb {
     'product_images',
     'product_links',
     'activity',
+    'income',
   ];
 
   static Database get db {
@@ -52,9 +53,10 @@ class AppDb {
       },
       onCreate: (d, v) async {
         await _createV1(d);
-        await normalizeV2(d);
+        await normalize(d);
       },
       onUpgrade: _upgrade,
+      onOpen: (d) async => normalize(d),
     );
   }
 
@@ -72,7 +74,53 @@ class AppDb {
   }
 
   static Future<void> _upgrade(Database d, int from, int to) async {
-    if (from < 2) await normalizeV2(d);
+    await normalize(d);
+  }
+
+  /// Brings any older database (or freshly restored old backup) up to the current schema.
+  /// Idempotent: safe to run on every open and after every restore.
+  static Future<void> normalize(DatabaseExecutor d) async {
+    await ensureV3Schema(d);
+    await normalizeV2(d);
+    for (final e in kKindMigration.entries) {
+      await d.rawUpdate('UPDATE collabs SET deal_type = ? WHERE deal_type = ?', [e.value, e.key]);
+    }
+    await d.rawUpdate("UPDATE payments SET kind = 'Fee' WHERE kind IS NULL OR kind = ''");
+  }
+
+  static Future<void> _addColumns(DatabaseExecutor d, String table, Map<String, String> cols) async {
+    final info = await d.rawQuery('PRAGMA table_info($table)');
+    final have = info.map((e) => e['name'].toString()).toSet();
+    for (final e in cols.entries) {
+      if (!have.contains(e.key)) await d.execute('ALTER TABLE $table ADD COLUMN ${e.key} ${e.value}');
+    }
+  }
+
+  /// v3: collab kinds (order & refund, UGC, commission, gifting, event), source + agency,
+  /// richer contacts, payment kinds, affiliate / other income table.
+  static Future<void> ensureV3Schema(DatabaseExecutor d) async {
+    await _addColumns(d, 'collabs', {
+      'fee_mode': 'TEXT',
+      'refund_amount': 'REAL',
+      'order_no': 'TEXT',
+      'order_date': 'TEXT',
+      'order_site': 'TEXT',
+      'order_proof': 'TEXT',
+      'refund_when': 'TEXT',
+      'agency_name': 'TEXT',
+      'agency_pct': 'REAL',
+      'promo_code': 'TEXT',
+      'commission_pct': 'REAL',
+      'event_date': 'TEXT',
+      'venue': 'TEXT',
+      'addons': 'TEXT',
+    });
+    await _addColumns(d, 'contacts', {'instagram': 'TEXT', 'company': 'TEXT'});
+    await _addColumns(d, 'payments', {'kind': 'TEXT'});
+    await d.execute('CREATE TABLE IF NOT EXISTS income (id TEXT PRIMARY KEY, source_type TEXT NOT NULL, platform TEXT NOT NULL, '
+        'month TEXT NOT NULL, gross REAL NOT NULL DEFAULT 0, tds REAL NOT NULL DEFAULT 0, net_paid REAL NOT NULL DEFAULT 0, '
+        'status TEXT NOT NULL DEFAULT \'Pending\', paid_date TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_income_month ON income(month)');
   }
 
   /// v2: 5 simple stages, deal types Barter / Paid / Barter + Paid, creator profile defaults.

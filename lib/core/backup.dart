@@ -38,7 +38,12 @@ class Backup {
       for (final r in data['product_images']!) str(r['file_name']),
     };
     for (final s in data['settings']!) {
-      if (s['key'] == 'signature_file' && str(s['value']).isNotEmpty) mediaNames.add(str(s['value']));
+      if ((s['key'] == 'signature_file' || s['key'] == 'profile_photo') && str(s['value']).isNotEmpty) {
+        mediaNames.add(str(s['value']));
+      }
+    }
+    for (final c in data['collabs']!) {
+      if (str(c['order_proof']).isNotEmpty) mediaNames.add(str(c['order_proof']));
     }
     var missing = 0;
     for (final n in mediaNames) {
@@ -78,9 +83,9 @@ class Backup {
 
   /// Decrypts and validates a backup without touching the database.
   static Future<RestorePlan> read(Uint8List bytes, String password) async {
-    if (bytes.length < 4 + 1 + 16 + 28) throw AuthException('Not a Creator CRM backup file');
+    if (bytes.length < 4 + 1 + 16 + 28) throw AuthException('Not a Collabook backup file (.ccrm)');
     for (var i = 0; i < 4; i++) {
-      if (bytes[i] != _magic[i]) throw AuthException('Not a Creator CRM backup file');
+      if (bytes[i] != _magic[i]) throw AuthException('Not a Collabook backup file (.ccrm)');
     }
     final ver = bytes[4];
     if (ver > formatVersion) throw AuthException('Backup was made by a newer app version. Update the app first.');
@@ -157,7 +162,7 @@ class Backup {
         await batch.commit(noResult: true);
       }
     });
-    await AppDb.normalizeV2(db);
+    await AppDb.normalize(db);
     if (replace) await Media.clearAll();
     for (final e in plan.media.entries) {
       await Media.writeBytes(e.key, e.value, overwrite: replace);

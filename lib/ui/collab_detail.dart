@@ -89,12 +89,11 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
                 if (c.nextAction != null && c.active) _nextAction(c),
                 _posts(c),
                 if (c.hasBarter || c.products.isNotEmpty) _productsPanel(c),
-                if (c.hasCash) _paymentPanel(c),
-                _actions(c),
-                const SizedBox(height: 12),
+                if (c.hasCash || c.isOrder) _paymentPanel(c),
+                _contactCard(c),
                 _fold('Expenses & profit', '${money(c.profit)} net', _expenses(c)),
                 if (c.invoices.isNotEmpty) _fold('Invoices', '${c.invoices.length}', _invoices(c)),
-                _fold('Details', str(_contact?['name']), _details(c)),
+                _fold('Details & rights', c.source, _details(c)),
                 _fold('Timeline', '${_activity.length} events', _timeline()),
                 const SizedBox(height: 24),
               ]),
@@ -182,7 +181,11 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
                     style: const TextStyle(color: kPrimary, fontWeight: FontWeight.w800, fontSize: 13)),
               ),
               const SizedBox(width: 8),
-              Text(c.brandName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF3B3753))),
+              Text(
+                  c.source.isEmpty
+                      ? c.brandName
+                      : '${c.brandName} · via ${c.agencyName.isNotEmpty ? c.agencyName : c.source}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kBody)),
             ]),
           ),
           const Spacer(),
@@ -210,7 +213,7 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Container(height: 6, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
                       const SizedBox(height: 5),
-                      Text(kStages[i],
+                      Text(stageLabel(kStages[i]),
                           style: TextStyle(
                               fontSize: 10,
                               color: i == si ? kPrimary : kMuted,
@@ -248,20 +251,61 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
   Widget _valueTiles(CollabView c) {
     final tiles = <Widget>[];
     if (c.hasCash) {
-      tiles.add(_tile('Cash', money(c.agreed), '${money(c.received)} received', kPrimaryTint, const Color(0xFF3F2A9E)));
+      tiles.add(_tile('Fee', money(c.agreed), c.agencyPct > 0 ? '−${c.agencyPct.toStringAsFixed(0)}% ${c.source.toLowerCase()}' : '${money(c.received)} received',
+          kPrimaryTint, kPrimaryDark));
     }
-    if (c.hasBarter) {
+    if (c.isOrder && c.refundAmount > 0) {
+      tiles.add(_tile(c.pendingRefund > 0 ? 'Refund due' : 'Refunded', money(c.refundAmount),
+          c.pendingRefund > 0 ? 'your money' : 'product kept', kAmberTint, kAmberDark));
+    } else if (c.hasBarter) {
       final posted = c.postedDate;
-      tiles.add(_tile('Barter', money(c.barterValue), posted == null ? '${c.products.length} product(s)' : 'Posted ${showDate(posted)}',
-          kBarterTint, const Color(0xFFA3194E)));
+      tiles.add(_tile('Product', money(c.barterValue), posted == null ? '${c.products.length} product(s)' : 'Posted ${showDate(posted)}',
+          kBarterTint, kBarterDark));
     }
-    tiles.add(_tile('Total', money(c.totalValue), 'net ${money(c.profit)}', kInk, const Color(0xFFC9C5DC), dark: true));
+    tiles.add(_tile('You earn', money(c.totalValue), c.isOrder ? 'fee + product' : 'net ${money(c.profit)}', kInk, const Color(0xFFC9C5DC), dark: true));
     final out = <Widget>[];
     for (var i = 0; i < tiles.length; i++) {
       if (i > 0) out.add(const SizedBox(width: 8));
       out.add(tiles[i]);
     }
-    return IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: out));
+    return Column(children: [
+      IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: out)),
+      const SizedBox(height: 10),
+      _quickActions(c),
+    ]);
+  }
+
+  Widget _quickActions(CollabView c) {
+    Widget q(String label, IconData i, Color fg, Color bg, VoidCallback onTap) => Expanded(
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Column(children: [
+                  CircleAvatar(radius: 18, backgroundColor: bg, child: Icon(i, color: fg, size: 18)),
+                  const SizedBox(height: 6),
+                  Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: kBody)),
+                ]),
+              ),
+            ),
+          ),
+        );
+    return Row(children: [
+      q('Remind', Icons.send_outlined, kPrimaryDark, kPrimaryTint, () => _remind(c)),
+      const SizedBox(width: 8),
+      q('Payment', Icons.currency_rupee, kMintDark, kMintTint, () => receiptDialog(context, c)),
+      const SizedBox(width: 8),
+      if (c.isOrder) ...[
+        q('Refund', Icons.replay, kAmberDark, kAmberTint, () => receiptDialog(context, c, kind: 'Refund')),
+        const SizedBox(width: 8),
+      ],
+      q('Invoice', Icons.receipt_long_outlined, kBarterDark, kBarterTint,
+          () => push(context, InvoiceScreen(collabId: c.id, invoiceId: c.invoices.isNotEmpty ? str(c.invoices.first['id']) : null))),
+    ]);
   }
 
   Widget _nextAction(CollabView c) {
@@ -296,10 +340,10 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
 
   Widget _posts(CollabView c) {
     return Panel(
-      title: 'Reels & posts',
+      title: c.isUgc ? 'Videos & posts' : 'Reels & posts',
       trailing: TextButton(onPressed: () => push(context, DeliverableScreen(collabId: c.id)), child: const Text('+ Add')),
       child: Column(children: [
-        if (c.deliverables.isEmpty) const Text('Nothing to post added yet.', style: TextStyle(color: kMuted)),
+        if (c.deliverables.isEmpty) const Text('Nothing added yet — tap + Add.', style: TextStyle(color: kMuted)),
         for (final d in c.deliverables) ...[
           _postCard(c, d),
           const SizedBox(height: 8),
@@ -325,7 +369,7 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
-            Pill(isLive ? 'Posted' : (st == 'Revision' ? 'Revision ${toI(d['revision_count'])}' : st), deliverableStatusColor(st)),
+            Pill(isLive ? deliverableStatusLabel(d) : (st == 'Revision' ? 'Revision ${toI(d['revision_count'])}' : st), deliverableStatusColor(st)),
             SizedBox(
               width: 36,
               height: 32,
@@ -354,7 +398,7 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
               Icon(Icons.link, size: 16, color: live.isNotEmpty ? kPrimary : kMuted),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(live.isNotEmpty ? live : (draft.isNotEmpty ? 'Draft: $draft' : 'Paste live link after posting'),
+                child: Text(live.isNotEmpty ? live : (draft.isNotEmpty ? 'Draft: $draft' : (isUgcDeliverable(d) ? 'Add delivered file link' : 'Paste live link after posting')),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: live.isNotEmpty ? kPrimary : kMuted)),
@@ -369,7 +413,7 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
           ),
           const SizedBox(height: 6),
           Row(children: [
-            Text(isLive ? 'Posted ${showDate(d['live_date'])}' : 'Post by ${showDate(d['due_date'])}',
+            Text(isLive ? '${deliverableStatusLabel(d)} ${showDate(d['live_date'])}' : '${isUgcDeliverable(d) ? 'Deliver' : 'Post'} by ${showDate(d['due_date'])}',
                 style: TextStyle(fontSize: 12, color: isLive ? kBothC : const Color(0xFF3B3753), fontWeight: FontWeight.w600)),
             const Spacer(),
             if (m != null)
@@ -431,79 +475,137 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
   }
 
   Widget _paymentPanel(CollabView c) {
-    final frac = c.agreed <= 0 ? 0.0 : (c.received / c.agreed).clamp(0.0, 1.0);
+    final expected = c.feeNet + c.refundAmount;
+    final got = c.feeReceived + c.refundReceived;
+    final frac = expected <= 0 ? 0.0 : (got / expected).clamp(0.0, 1.0);
+    Widget line(Color dot, String k, String sub, String v, Color vc) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(children: [
+            CircleAvatar(radius: 4, backgroundColor: dot),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(k, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                if (sub.isNotEmpty) Text(sub, style: const TextStyle(fontSize: 11, color: kMuted)),
+              ]),
+            ),
+            Text(v, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: vc)),
+          ]),
+        );
+    final orderBits = [
+      if (str(c.row['order_site']).isNotEmpty) str(c.row['order_site']),
+      if (str(c.row['order_no']).isNotEmpty) '#${str(c.row['order_no'])}',
+      if (str(c.row['order_date']).isNotEmpty) showDate(c.row['order_date']),
+    ].join(' · ');
     return Panel(
-      title: 'Payment',
+      title: 'Money',
       trailing: TextButton(onPressed: () => receiptDialog(context, c), child: const Text('+ Record')),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(5),
-          child: LinearProgressIndicator(value: frac, minHeight: 10, color: kOk, backgroundColor: kLine),
+          child: LinearProgressIndicator(value: frac, minHeight: 10, color: kMint, backgroundColor: kLine),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Row(children: [
-          Text('Received ${money(c.received)}', style: const TextStyle(fontSize: 13)),
+          Text('Received ${money(got)}', style: const TextStyle(fontSize: 12, color: kBody)),
           const Spacer(),
-          Text(c.pending > 0 ? 'Pending ${money(c.pending)}' : 'Fully paid',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c.pending > 0 ? kDanger : kOk)),
+          Text(c.pending > 0.5 ? 'Pending ${money(c.pending)}' : 'All settled',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: c.pending > 0.5 ? kDanger : kMintDark)),
         ]),
-        if (c.dueDate != null && c.pending > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text('Due ${showDate(c.dueDate)}${c.paymentStatus == 'Overdue' ? ' · overdue' : ''}',
-                style: TextStyle(fontSize: 12, color: c.paymentStatus == 'Overdue' ? kDanger : kMuted)),
-          ),
-        for (final r in c.receipts)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            leading: const Icon(Icons.check_circle, color: kOk, size: 20),
-            title: Text(money(toD(r['amount'])), style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text([
-              showDate(r['received_date']),
-              if (str(r['method']).isNotEmpty) str(r['method']),
-              if (toD(r['tds']) > 0) 'TDS ${money(toD(r['tds']))}',
-              if (str(r['notes']).isNotEmpty) str(r['notes']),
-            ].join(' · ')),
-            onTap: () => receiptDialog(context, c, existing: r),
-          ),
+        const Divider(height: 20),
+        if (c.isOrder && c.refundAmount > 0) ...[
+          line(kAmber, 'Product ordered', orderBits.isEmpty ? 'Add order details in Edit' : orderBits, '− ${money(c.refundAmount)}', kAmberDark),
+          line(kAmber, 'Refund', c.pendingRefund > 0 ? '${str(c.row['refund_when']).isEmpty ? 'Due' : str(c.row['refund_when'])}' : 'Received',
+              c.pendingRefund > 0 ? '${money(c.pendingRefund)} due' : '✓ ${money(c.refundReceived)}', c.pendingRefund > 0 ? kAmberDark : kMintDark),
+          if (str(c.row['order_proof']).isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => push(context, _ProofViewer(fileName: str(c.row['order_proof']))),
+                icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                label: const Text('View order screenshot'),
+              ),
+            ),
+        ],
+        if (c.hasCash)
+          line(kPrimary, 'Fee${c.addons.isNotEmpty ? ' + add-ons' : ''}', c.dueDate == null ? '' : 'Due ${showDate(c.dueDate)}${c.paymentStatus == 'Overdue' ? ' · overdue' : ''}',
+              c.pendingFee > 0 ? '${money(c.pendingFee)} due' : '✓ ${money(c.feeReceived)}', c.pendingFee > 0 ? (c.paymentStatus == 'Overdue' ? kDanger : kPrimaryDark) : kMintDark),
+        for (final a in c.addons) line(kLine, '   ${str(a['name'])}', str(a['detail']), money(toD(a['amount'])), kBody),
+        if (c.agencyCut > 0) line(const Color(0xFF8A85A3), '${c.agencyName.isEmpty ? c.source : c.agencyName} cut ${c.agencyPct.toStringAsFixed(0)}%', 'Kept by them', '− ${money(c.agencyCut)}', kBody),
+        if (c.receipts.isNotEmpty) ...[
+          const Divider(height: 20),
+          const Text('RECEIVED', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: kMuted, letterSpacing: 0.4)),
+          for (final r in c.receipts)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(Icons.check_circle, color: r['kind'] == 'Refund' ? kAmber : kMint, size: 20),
+              title: Text('${money(toD(r['amount']))} · ${str(r['kind']).isEmpty ? 'Fee' : str(r['kind'])}',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text([
+                showDate(r['received_date']),
+                if (str(r['method']).isNotEmpty) str(r['method']),
+                if (toD(r['tds']) > 0) 'TDS ${money(toD(r['tds']))}',
+              ].join(' · ')),
+              trailing: const Icon(Icons.edit_outlined, size: 18, color: kMuted),
+              onTap: () => receiptDialog(context, c, existing: r),
+            ),
+        ],
       ]),
     );
   }
 
-  Widget _actions(CollabView c) {
-    return Row(children: [
-      if (c.hasCash)
-        Expanded(
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
-            onPressed: () => push(context,
-                InvoiceScreen(collabId: c.id, invoiceId: c.invoices.isNotEmpty ? str(c.invoices.first['id']) : null)),
-            icon: const Icon(Icons.receipt_long_outlined),
-            label: Text(c.invoices.isEmpty ? 'Create invoice' : 'Invoice'),
+  Widget _contactCard(CollabView c) {
+    final ct = c.contact;
+    if (ct == null) return const SizedBox.shrink();
+    final phone = str(ct['phone']).replaceAll(RegExp(r'[^0-9+]'), '');
+    final email = str(ct['email']);
+    final insta = str(ct['instagram']);
+    final wa = phone.replaceAll('+', '');
+    Widget act(String l, Color fg, Color bg, VoidCallback onTap) => Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Material(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                child: Text(l, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+            ),
           ),
-        ),
-      if (c.hasCash) const SizedBox(width: 10),
-      if (c.hasCash)
-        SizedBox(
-          width: 132,
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)),
-            onPressed: () => _remind(c),
-            icon: const Icon(Icons.send_outlined, size: 18),
-            label: const Text('Remind'),
+        );
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: kPrimaryTint,
+            child: Text(
+              str(ct['name']).trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(2).map((w) => w[0].toUpperCase()).join(),
+              style: const TextStyle(color: kPrimaryDark, fontWeight: FontWeight.w800),
+            ),
           ),
-        )
-      else
-        Expanded(
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)),
-            onPressed: () => _remind(c),
-            icon: const Icon(Icons.send_outlined, size: 18),
-            label: const Text('Message brand'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(str(ct['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              Text([str(ct['role']), str(ct['company']), if (c.agencyPct > 0) '${c.agencyPct.toStringAsFixed(0)}%'].where((x) => x.isNotEmpty).join(' · '),
+                  style: const TextStyle(fontSize: 12, color: kMuted)),
+            ]),
           ),
-        ),
-    ]);
+        ]),
+        const SizedBox(height: 10),
+        Wrap(alignment: WrapAlignment.end, runSpacing: 6, children: [
+          if (wa.isNotEmpty) act('WhatsApp', kMintDark, kMintTint, () => openUrl(context, 'https://wa.me/${wa.length == 10 ? '91$wa' : wa}')),
+          if (phone.isNotEmpty) act('Call', kPrimaryDark, kPrimaryTint, () => openUrl(context, 'tel:$phone')),
+          if (email.isNotEmpty) act('Email', kBarterDark, kBarterTint, () => openUrl(context, 'mailto:$email')),
+          if (insta.isNotEmpty) act('Instagram', kBody, const Color(0xFFF1EFF7), () => openUrl(context, 'https://instagram.com/${insta.replaceFirst('@', '')}')),
+        ]),
+      ]),
+    );
   }
 
   void _remind(CollabView c) {
@@ -633,14 +735,14 @@ List<String> stageGateIssues(CollabView c, String target) {
   final ti = stageIndex(target);
   if (ti >= stageIndex('Confirmed')) {
     if (c.hasCash && c.agreed <= 0) issues.add('Agreed amount not set');
-    if (c.hasBarter && c.barterValue <= 0) issues.add('Product value not set');
+    if (c.hasBarter && c.barterValue <= 0 && !c.isOrder) issues.add('Product value not set');
   }
-  if (ti >= stageIndex('Shooting') && c.deliverables.isEmpty) issues.add('No reels/posts added');
+  if (ti >= stageIndex('Creating') && c.deliverables.isEmpty) issues.add('No reels/posts added');
   if (ti >= stageIndex('Posted')) {
     final missing = c.deliverables.where((d) => str(d['live_link']).isEmpty).length;
     if (missing > 0) issues.add('$missing post(s) without live link');
   }
-  if (target == 'Done' && c.pending > 0) issues.add('${money(c.pending)} still pending');
+  if (target == 'Done' && c.pending > 0.5) issues.add('${money(c.pending)} still pending');
   return issues;
 }
 
@@ -658,7 +760,7 @@ Future<void> showStageSheet(BuildContext context, CollabView c, {String? presele
               final issues = st == kCancelled ? <String>[] : stageGateIssues(c, st);
               return ListTile(
                 leading: Icon(st == c.stage ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: stageColor(st)),
-                title: Text(st, style: const TextStyle(fontWeight: FontWeight.w600)),
+                title: Text(stageLabel(st), style: const TextStyle(fontWeight: FontWeight.w600)),
                 subtitle: Text(issues.isEmpty ? (kStageHint[st] ?? '') : issues.join(' · '),
                     style: TextStyle(color: issues.isEmpty ? kMuted : kWarn, fontSize: 12)),
                 enabled: st != c.stage,
@@ -699,6 +801,17 @@ Future<void> showStageSheet(BuildContext context, CollabView c, {String? presele
     if (target == kCancelled) 'cancel_reason': reason,
     if (target == kCancelled) 'cancelled_from': c.stage,
   });
-  await Repo.log(c.id, target == kCancelled ? 'Cancelled at ${c.stage}: $reason' : 'Stage: ${c.stage} → $target');
+  await Repo.log(c.id, target == kCancelled ? 'Cancelled at ${stageLabel(c.stage)}: $reason' : 'Stage: ${stageLabel(c.stage)} → ${stageLabel(target)}');
   Repo.notify();
+}
+
+class _ProofViewer extends StatelessWidget {
+  final String fileName;
+  const _ProofViewer({required this.fileName});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Order screenshot', style: TextStyle(color: Colors.white, fontSize: 18))),
+        body: Center(child: InteractiveViewer(child: MediaImage(fileName, radius: 0, fit: BoxFit.contain))),
+      );
 }

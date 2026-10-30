@@ -1,5 +1,6 @@
 import 'constants.dart';
 import 'format.dart';
+import 'repo.dart';
 import 'snapshot.dart';
 
 /// Date range filter shared by Dashboard and Reports.
@@ -58,41 +59,63 @@ class Period {
 }
 
 class Earnings {
-  double cash = 0; // received (credited + TDS) in period
-  double barter = 0; // barter value earned in period
+  double cash = 0; // collab fees received (credited + TDS) in period
+  double ugc = 0; // part of cash from UGC collabs
+  double barter = 0; // product value kept in period
+  double affiliate = 0; // affiliate gross earned in period
+  double other = 0; // other income gross in period
   double expenses = 0;
-  double tds = 0;
+  double agencyCuts = 0;
+  double tds = 0; // brand TDS
+  double tdsIncome = 0; // affiliate / other TDS
+  double refundsIn = 0; // refunds received (not income)
+  double incomeNetPaid = 0; // affiliate/other actually paid to bank
+  double incomePending = 0; // affiliate/other not yet paid
   int paidCollabs = 0;
   int barterCollabs = 0;
   int payments = 0;
   final Set<String> collabIds = {};
-  double get total => cash + barter;
+  double get collabTotal => cash + barter;
+  double get total => cash + barter + affiliate + other;
   double get net => total - expenses;
+  double get cashInBank => (cash - tds) + refundsIn + incomeNetPaid;
+  double get allTds => tds + tdsIncome;
 }
 
-/// Filters collabs by type ('All', 'Paid', 'Barter', 'Both'), brand and platform.
-List<CollabView> filterCollabs(Snapshot s, {String type = 'All', String? brandId, String? platform}) {
+/// Type filter values used by Home / Reports.
+const List<String> kTypeFilters = ['All', kPaid, kBarter, kBoth, kOrder, kUgc, kCommission, kGifting, kEvent];
+
+List<CollabView> filterCollabs(Snapshot s, {String type = 'All', String? brandId, String? platform, String? source}) {
   return s.collabs.where((c) {
-    if (type == kPaid && c.dealType != kPaid) return false;
-    if (type == kBarter && c.dealType != kBarter) return false;
-    if ((type == 'Both' || type == kBoth) && c.dealType != kBoth) return false;
+    if (type != 'All' && c.kind != type) return false;
     if (brandId != null && c.row['brand_id'] != brandId) return false;
+    if (source != null && c.source != source) return false;
     if (platform != null && !c.deliverables.any((d) => d['platform'] == platform)) return false;
     return true;
   }).toList();
 }
 
-Earnings computeEarnings(List<CollabView> collabs, Period p) {
+/// Month key yyyy-MM of an income row as a date (1st of month).
+DateTime? incomeMonth(Rec r) => parseDate('${str(r['month'])}-01');
+
+Earnings computeEarnings(List<CollabView> collabs, Period p, {List<Rec> income = const [], bool includeIncome = true}) {
   final e = Earnings();
   for (final c in collabs) {
     var touched = false;
+    var cashHere = false;
     for (final r in c.receipts) {
-      if (p.hasStr(r['received_date'])) {
-        e.cash += toD(r['amount']) + toD(r['tds']);
-        e.tds += toD(r['tds']);
-        e.payments++;
-        touched = true;
+      if (!p.hasStr(r['received_date'])) continue;
+      if (r['kind'] == 'Refund') {
+        e.refundsIn += toD(r['amount']);
+        continue;
       }
+      final v = toD(r['amount']) + toD(r['tds']);
+      e.cash += v;
+      if (c.isUgc) e.ugc += v;
+      e.tds += toD(r['tds']);
+      e.payments++;
+      touched = true;
+      cashHere = true;
     }
     if (c.barterEarned > 0 && p.has(c.barterDate)) {
       e.barter += c.barterEarned;
@@ -102,17 +125,37 @@ Earnings computeEarnings(List<CollabView> collabs, Period p) {
     for (final x in c.expenses) {
       if (p.hasStr(x['date'])) e.expenses += toD(x['amount']);
     }
-    if (touched && c.hasCash && c.receipts.any((r) => p.hasStr(r['received_date']))) e.paidCollabs++;
+    if (cashHere) {
+      e.paidCollabs++;
+      e.agencyCuts += c.agencyCut * (c.agreed <= 0 ? 0 : (c.feeReceived / (c.feeNet <= 0 ? 1 : c.feeNet)).clamp(0, 1));
+    }
     if (touched) e.collabIds.add(c.id);
+  }
+  if (includeIncome) {
+    for (final r in income) {
+      if (!p.has(incomeMonth(r))) continue;
+      final g = toD(r['gross']);
+      if (r['source_type'] == 'Affiliate') {
+        e.affiliate += g;
+      } else {
+        e.other += g;
+      }
+      e.tdsIncome += toD(r['tds']);
+      if (r['status'] == 'Paid') {
+        e.incomeNetPaid += toD(r['net_paid']) > 0 ? toD(r['net_paid']) : g - toD(r['tds']);
+      } else {
+        e.incomePending += g - toD(r['tds']);
+      }
+    }
   }
   return e;
 }
 
-/// Cash and barter per month for charts.
-List<(DateTime, double, double)> monthlySeries(List<CollabView> collabs, Period p) {
+/// Cash, barter and affiliate/other per month for charts.
+List<(DateTime, double, double, double)> monthlySeries(List<CollabView> collabs, Period p, {List<Rec> income = const []}) {
   return p.months().map((m) {
     final mp = Period('m', m, DateTime(m.year, m.month + 1, 1));
-    final e = computeEarnings(collabs, mp);
-    return (m, e.cash, e.barter);
+    final e = computeEarnings(collabs, mp, income: income);
+    return (m, e.cash, e.barter, e.affiliate + e.other);
   }).toList();
 }

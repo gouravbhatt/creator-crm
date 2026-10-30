@@ -1,6 +1,6 @@
-# Creator CRM
+# Collabook — Every collab. Every rupee.
 
-Offline-only Android app (Flutter) for creators to run brand collaborations end to end: brands, contacts, collab lifecycle, deliverables with reel links and performance, payments with TDS, GST invoices with UPI QR, products with images/links, dashboards and reports. No account, no server, no sync — data is encrypted on the phone.
+Offline-only Android app (Flutter) for creators to run brand collaborations end to end — paid, barter, paid + barter, order & refund, UGC, commission, gifting and events — plus affiliate and other income: brands, contacts, collab lifecycle, deliverables with reel links and performance, payments with TDS, GST invoices with UPI QR, products with images/links, dashboards and reports. No account, no server, no sync — data is encrypted on the phone.
 
 ## Install the APK
 
@@ -37,3 +37,9 @@ Tested toolchain: Flutter 3.32.0, Java 17. The `android/` folder is generated in
 
 - [docs/SECURITY.md](docs/SECURITY.md) — database, key handling, backup format
 - [docs/TESTING.md](docs/TESTING.md) — manual test checklist
+
+## Signing & updates
+
+Release builds are signed with the permanent key in `tool/signing/` (applied by `tool/patch_android.py`), so every new APK installs over the previous Collabook build and keeps data. Builds made before Collabook v3 used a temporary key: back up, uninstall the old app once, install, then restore the `.ccrm`.
+
+The key is committed so CI can sign; keep this repository **private**. For Play Store release, enroll in Play App Signing and use this key as the upload key.
