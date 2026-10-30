@@ -28,7 +28,7 @@ if os.path.exists(kts):
     s = s.replace("minSdk = flutter.minSdkVersion", "minSdk = 23")
     if "keystoreProperties" not in s:
         header = (
-            "val keystoreProperties = java.util.Properties().apply {\n"
+            "val keystoreProperties = Properties().apply {\n"
             "    val f = rootProject.file(\"../tool/signing/key.properties\")\n"
             "    if (f.exists()) f.inputStream().use { load(it) }\n"
             "}\n\n"
@@ -36,6 +36,7 @@ if os.path.exists(kts):
         # after the plugins { } block
         m = re.search(r"plugins\s*\{[^}]*\}\s*", s)
         s = s[: m.end()] + "\n" + header + s[m.end():] if m else header + s
+        s = "import java.util.Properties\n\n" + s
         signing = (
             "    signingConfigs {\n"
             "        create(\"release\") {\n"
