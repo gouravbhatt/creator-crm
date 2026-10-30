@@ -1,0 +1,37 @@
+Running Gradle task 'assembleRelease'...                        
+Checking the license for package NDK (Side by side) 26.3.11579264 in /usr/local/lib/android/sdk/licenses
+License for package NDK (Side by side) 26.3.11579264 accepted.
+Preparing "Install NDK (Side by side) 26.3.11579264 v.26.3.11579264".
+"Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" ready.
+Installing NDK (Side by side) 26.3.11579264 in /usr/local/lib/android/sdk/ndk/26.3.11579264
+"Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" complete.
+"Install NDK (Side by side) 26.3.11579264 v.26.3.11579264" finished.
+Your project is configured with Android NDK 26.3.11579264, but the following plugin(s) depend on a different Android NDK version:
+- file_picker requires Android NDK 27.0.12077973
+- flutter_plugin_android_lifecycle requires Android NDK 27.0.12077973
+- flutter_secure_storage requires Android NDK 27.0.12077973
+- image_picker_android requires Android NDK 27.0.12077973
+- local_auth_android requires Android NDK 27.0.12077973
+- path_provider_android requires Android NDK 27.0.12077973
+- share_plus requires Android NDK 27.0.12077973
+- sqflite_sqlcipher requires Android NDK 27.0.12077973
+- url_launcher_android requires Android NDK 27.0.12077973
+Fix this issue by using the highest Android NDK version (they are backward compatible).
+Add the following to /home/runner/work/creator-crm/creator-crm/android/app/build.gradle.kts:
+
+    android {
+        ndkVersion = "27.0.12077973"
+        ...
+    }
+Expected to find fonts for (MaterialIcons, packages/cupertino_icons/CupertinoIcons), but found (MaterialIcons). This usually means you are referring to font families in an IconData class but not including them in the assets section of your pubspec.yaml, are missing the package that would include them, or are missing "uses-material-design: true".
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 11280 bytes (99.3% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Caught exception: Already watching path: /home/runner/work/creator-crm/creator-crm/android
+Checking the license for package CMake 3.22.1 in /usr/local/lib/android/sdk/licenses
+License for package CMake 3.22.1 accepted.
+Preparing "Install CMake 3.22.1 v.3.22.1".
+"Install CMake 3.22.1 v.3.22.1" ready.
+Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
+"Install CMake 3.22.1 v.3.22.1" complete.
+"Install CMake 3.22.1 v.3.22.1" finished.
+Running Gradle task 'assembleRelease'...                          309.8s
+✓ Built build/app/outputs/flutter-apk/app-release.apk (82.3MB)

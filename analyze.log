@@ -1,0 +1,15 @@
+Analyzing creator-crm...                                        
+
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/collab_detail.dart:110:31 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/collab_detail.dart:130:35 • deprecated_member_use
+   info • Unnecessary use of string interpolation • lib/ui/collab_detail.dart:518:56 • unnecessary_string_interpolations
+   info • The private field _recentBrands could be 'final' • lib/ui/collab_form.dart:55:13 • prefer_final_fields
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/dashboard_screen.dart:233:63 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/dashboard_screen.dart:440:30 • deprecated_member_use
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/home_shell.dart:67:43 • deprecated_member_use
+warning • Unused import: 'products_screens.dart' • lib/ui/settings_screen.dart:12:8 • unused_import
+warning • The declaration '_saveProfile' isn't referenced • lib/ui/settings_screen.dart:104:16 • unused_element
+warning • The declaration '_pickSignature' isn't referenced • lib/ui/settings_screen.dart:123:16 • unused_element
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/ui/widgets.dart:161:46 • deprecated_member_use
+
+11 issues found. (ran in 19.6s)

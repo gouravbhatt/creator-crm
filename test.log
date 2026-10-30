@@ -1,0 +1,21 @@
+
+✅ CSV escaping plain values stay unquoted
+✅ CSV escaping comma is quoted
+✅ CSV escaping quotes are doubled
+✅ CSV escaping newlines are quoted
+✅ CSV escaping null is empty
+✅ format helpers financial year label
+✅ format helpers fy start before April
+✅ format helpers url validation
+✅ format helpers toD parses commas
+✅ crypto seal/open round trip
+✅ crypto wrong key fails
+✅ crypto recovery key normalises
+✅ money model order & refund with total including product
+✅ money model refund received is not income, fee is
+✅ money model agency cut reduces what brand owes
+✅ money model barter value from products
+✅ money model add-ons add to fee
+✅ UPI uri encodes values
+
+🎉 18 tests passed.
