@@ -1,12 +1,20 @@
 import 'package:intl/intl.dart';
 
 final NumberFormat _money = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+final NumberFormat _money2 = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
 final NumberFormat _plain = NumberFormat.decimalPattern('en_IN');
 final DateFormat _iso = DateFormat('yyyy-MM-dd');
 final DateFormat _show = DateFormat('d MMM yyyy');
 final DateFormat _month = DateFormat('MMM');
 
-String money(num? v) => _money.format(v ?? 0);
+/// Round to paise so float sums never drift (0.1 + 0.2 issues).
+double paise(num? v) => ((v ?? 0) * 100).round() / 100;
+
+/// Rupees; shows paise only when the value has them, so totals add up exactly.
+String money(num? v) {
+  final x = paise(v);
+  return x % 1 == 0 ? _money.format(x) : _money2.format(x);
+}
 String plainNum(num? v) => _plain.format(v ?? 0);
 String isoDate(DateTime d) => _iso.format(d);
 String todayIso() => isoDate(DateTime.now());

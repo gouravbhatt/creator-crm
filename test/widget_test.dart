@@ -4,6 +4,7 @@ import 'package:creator_crm/core/invoice_pdf.dart';
 import 'package:creator_crm/core/security.dart';
 import 'package:creator_crm/core/snapshot.dart';
 import 'package:creator_crm/core/constants.dart';
+import 'package:creator_crm/core/earnings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -86,6 +87,25 @@ void main() {
     });
   });
 
+  group('income maths', () {
+    test('paise sums do not drift', () {
+      expect(money(0.1 + 0.2), '₹0.30');
+      expect(money(1200), '₹1,200');
+      expect(money(123.456), '₹123.46');
+    });
+    test('wishlink after-TDS rows add up', () {
+      final rows = [
+        {'gross': 1013.13, 'tds': 101.31, 'status': 'Paid'},
+        {'gross': 456.78, 'tds': 45.68, 'status': 'Pending'},
+      ];
+      final net = rows.fold<double>(0, (a, r) => a + incomeNet(r));
+      final gross = rows.fold<double>(0, (a, r) => a + (r['gross'] as double));
+      final tds = rows.fold<double>(0, (a, r) => a + (r['tds'] as double));
+      expect(paise(net + tds), paise(gross));
+      expect(incomeNet(rows.first), 911.82);
+    });
+  });
+
   test('UPI uri encodes values', () {
     final u = upiUri(upiId: 'me@okicici', name: 'A B', amount: 1500, note: 'INV/2026-27/001');
     expect(u, startsWith('upi://pay?pa=me%40okicici&pn=A%20B&am=1500.00'));
@@ -98,3 +118,5 @@ CollabView _cv(Map<String, dynamic> row, {List<Map<String, dynamic>> receipts = 
     CollabView({'id': 'c1', 'title': 't', 'stage': 'Posted', ...row}, 'Brand', const [], receipts, const [], const [], const {}, products, null, null);
 
 
+
+// ---------------- v3.1 income maths ----------------

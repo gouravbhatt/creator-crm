@@ -98,6 +98,10 @@ List<CollabView> filterCollabs(Snapshot s, {String type = 'All', String? brandId
 /// Month key yyyy-MM of an income row as a date (1st of month).
 DateTime? incomeMonth(Rec r) => parseDate('${str(r['month'])}-01');
 
+/// What lands in the bank for an income row: earned − TDS, always, so
+/// Earned = TDS + Paid + Pending adds up exactly.
+double incomeNet(Rec r) => paise(toD(r['gross']) - toD(r['tds']));
+
 Earnings computeEarnings(List<CollabView> collabs, Period p, {List<Rec> income = const [], bool includeIncome = true}) {
   final e = Earnings();
   for (final c in collabs) {
@@ -142,9 +146,9 @@ Earnings computeEarnings(List<CollabView> collabs, Period p, {List<Rec> income =
       }
       e.tdsIncome += toD(r['tds']);
       if (r['status'] == 'Paid') {
-        e.incomeNetPaid += toD(r['net_paid']) > 0 ? toD(r['net_paid']) : g - toD(r['tds']);
+        e.incomeNetPaid += incomeNet(r);
       } else {
-        e.incomePending += g - toD(r['tds']);
+        e.incomePending += incomeNet(r);
       }
     }
   }

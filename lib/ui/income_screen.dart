@@ -66,8 +66,8 @@ class _IncomeScreenState extends State<IncomeScreen> with AutoReload {
     double sum(Iterable<Rec> l, double Function(Rec) f) => l.fold(0.0, (a, r) => a + f(r));
     final gross = sum(inP, (r) => toD(r['gross']));
     final tds = sum(inP, (r) => toD(r['tds']));
-    final paid = sum(inP.where((r) => r['status'] == 'Paid'), (r) => toD(r['net_paid']) > 0 ? toD(r['net_paid']) : toD(r['gross']) - toD(r['tds']));
-    final pend = sum(inP.where((r) => r['status'] != 'Paid'), (r) => toD(r['gross']) - toD(r['tds']));
+    final paid = sum(inP.where((r) => r['status'] == 'Paid'), incomeNet);
+    final pend = sum(inP.where((r) => r['status'] != 'Paid'), incomeNet);
 
     final byPlat = <String, double>{};
     for (final r in inP) {
@@ -101,6 +101,9 @@ class _IncomeScreenState extends State<IncomeScreen> with AutoReload {
             Expanded(child: _heroPart('Paid to bank', money(paid))),
             Expanded(child: _heroPart('Pending', money(pend))),
           ]),
+          const SizedBox(height: 8),
+          Text('Earned ${money(gross)} = TDS ${money(tds)} + paid ${money(paid)} + pending ${money(pend)}',
+              style: const TextStyle(color: Color(0xFFBDF0D9), fontSize: 11)),
         ]),
       ),
       const SizedBox(height: 12),
@@ -155,7 +158,12 @@ class _IncomeScreenState extends State<IncomeScreen> with AutoReload {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 9),
               child: Row(children: [
-                Expanded(child: Text(str(r['platform']), style: const TextStyle(fontWeight: FontWeight.w600))),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(str(r['platform']), style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('${r['status'] == 'Paid' ? 'Credited' : 'Will credit'} ${money(incomeNet(r))}', style: const TextStyle(color: kMuted, fontSize: 11)),
+                  ]),
+                ),
                 Text(money(toD(r['gross'])), style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(width: 10),
                 SizedBox(
@@ -201,9 +209,11 @@ Future<void> incomeDialog(BuildContext context, {required String sourceType, Rec
   String platform = str(existing?['platform']).isEmpty ? options.first : str(existing?['platform']);
   final custom = TextEditingController(text: options.contains(platform) ? '' : platform);
   if (!options.contains(platform)) platform = 'Other';
-  final gross = numCtl(existing?['gross']);
+  // The creator types the number the platform shows. Wishlink & co. show
+  // "after TDS" (what lands in the bank); others show earnings before TDS.
+  String entry = 'gross';
+  final amount = numCtl(existing?['gross']);
   final tds = numCtl(existing?['tds']);
-  final net = numCtl(existing?['net_paid']);
   final paidDate = ctl(existing?['paid_date']);
   final notes = ctl(existing?['notes']);
   String status = str(existing?['status']).isEmpty ? 'Pending' : str(existing?['status']);
@@ -242,21 +252,54 @@ Future<void> incomeDialog(BuildContext context, {required String sourceType, Rec
                 const SizedBox(height: 12),
                 _MonthField(controller: monthCtl),
                 const SizedBox(height: 12),
+                const Text('The amount I have is', style: TextStyle(fontSize: 12, color: kMuted, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Segmented(
+                  options: const ['Before TDS', 'After TDS (credited)'],
+                  value: entry == 'gross' ? 'Before TDS' : 'After TDS (credited)',
+                  onChanged: (v) => set(() => entry = v == 'Before TDS' ? 'gross' : 'net'),
+                ),
+                const SizedBox(height: 10),
                 Row(children: [
-                  Expanded(child: moneyField(gross, 'Earned (gross ₹)', req: true)),
+                  Expanded(
+                    child: TextFormField(
+                      controller: amount,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: deco(entry == 'gross' ? 'Earned before TDS (₹)' : 'Credited after TDS (₹)'),
+                      onChanged: (_) => set(() {}),
+                      validator: (t) => (double.tryParse((t ?? '').replaceAll(',', '')) ?? -1) <= 0 ? 'Enter the amount' : null,
+                    ),
+                  ),
                   const SizedBox(width: 8),
-                  Expanded(child: moneyField(tds, 'TDS cut (₹)')),
+                  Expanded(
+                    child: TextFormField(
+                      controller: tds,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: deco('TDS cut (₹)'),
+                      onChanged: (_) => set(() {}),
+                    ),
+                  ),
                 ]),
+                Builder(builder: (_) {
+                  final a = toD(amount.text), t = toD(tds.text);
+                  final g = entry == 'gross' ? a : a + t;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: kMintTint, borderRadius: BorderRadius.circular(12)),
+                    child: Column(children: [
+                      _calcRow('Earned (before TDS)', money(g), true),
+                      _calcRow('TDS cut', '− ${money(t)}', false),
+                      _calcRow('Credited to bank', money(g - t), true),
+                    ]),
+                  );
+                }),
                 const Text('Status', style: TextStyle(fontSize: 12, color: kMuted, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 Segmented(options: kIncomeStatuses, value: status, onChanged: (v) => set(() => status = v)),
                 if (status == 'Paid') ...[
                   const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(child: moneyField(net, 'Paid to bank (₹)')),
-                    const SizedBox(width: 8),
-                    Expanded(child: DateField(paidDate, 'Paid on')),
-                  ]),
+                  DateField(paidDate, 'Paid on'),
                 ],
                 const SizedBox(height: 4),
                 textField(notes, 'Notes'),
@@ -288,8 +331,8 @@ Future<void> incomeDialog(BuildContext context, {required String sourceType, Rec
       await Repo.delete('income', str(existing['id']));
     }
   } else if (res == 'save') {
-    final g = toD(gross.text);
-    final t = toD(tds.text);
+    final t = paise(toD(tds.text));
+    final g = paise(entry == 'gross' ? toD(amount.text) : toD(amount.text) + t);
     await Repo.save('income', {
       'id': existing?['id'],
       'source_type': sourceType,
@@ -297,7 +340,7 @@ Future<void> incomeDialog(BuildContext context, {required String sourceType, Rec
       'month': monthCtl.text,
       'gross': g,
       'tds': t,
-      'net_paid': status == 'Paid' ? (toD(net.text) > 0 ? toD(net.text) : g - t) : 0,
+      'net_paid': status == 'Paid' ? paise(g - t) : 0,
       'status': status,
       'paid_date': status == 'Paid' ? (nn(paidDate) ?? todayIso()) : null,
       'notes': nn(notes),
@@ -333,3 +376,11 @@ class _MonthFieldState extends State<_MonthField> {
     );
   }
 }
+
+Widget _calcRow(String k, String v, bool bold) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(children: [
+        Expanded(child: Text(k, style: TextStyle(color: kMintDark, fontSize: 13, fontWeight: bold ? FontWeight.w700 : FontWeight.w500))),
+        Text(v, style: TextStyle(color: kMintDark, fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500)),
+      ]),
+    );

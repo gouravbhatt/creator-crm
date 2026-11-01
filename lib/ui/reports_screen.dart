@@ -246,10 +246,10 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(children: [
             SizedBox(width: 64, child: Text('${monthLabel(m.$1)} ${m.$1.year % 100}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
-            cell(plainNum(m.$2.round())),
-            cell(plainNum(m.$3.round())),
-            cell(plainNum(m.$4.round())),
-            cell(plainNum((m.$2 + m.$3 + m.$4).round()), bold: true),
+            cell(plainNum(paise(m.$2))),
+            cell(plainNum(paise(m.$3))),
+            cell(plainNum(paise(m.$4))),
+            cell(plainNum(paise((m.$2 + m.$3 + m.$4))), bold: true),
           ]),
         ),
     ]);

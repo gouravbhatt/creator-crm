@@ -13,7 +13,7 @@ import 'repo.dart';
 import 'snapshot.dart';
 
 /// PDF uses the built-in Helvetica font, which has no ₹ glyph, so amounts print as "Rs.".
-String _rs(num v) => 'Rs. ${plainNum(v.round())}';
+String _rs(num v) => 'Rs. ${plainNum(paise(v))}';
 
 List<Map<String, dynamic>> invoiceItems(Rec inv) {
   try {
