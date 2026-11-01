@@ -9,15 +9,20 @@ import 'widgets.dart';
 
 /// Stand-alone payments page (from Profile).
 class PaymentsScreen extends StatelessWidget {
-  const PaymentsScreen({super.key});
+  /// 'fees' or 'refunds' to open pre-filtered (from the Home tiles).
+  final String? focus;
+  const PaymentsScreen({super.key, this.focus});
   @override
   Widget build(BuildContext context) =>
-      Scaffold(appBar: AppBar(title: const Text('Brand payments')), body: const PaymentsBody());
+      Scaffold(
+          appBar: AppBar(title: Text(focus == 'refunds' ? 'Refunds due to you' : (focus == 'fees' ? 'Brands owe you' : 'Brand payments'))),
+          body: PaymentsBody(focus: focus));
 }
 
 /// Brand payments: what's owed (fees + refunds) and what was received.
 class PaymentsBody extends StatefulWidget {
-  const PaymentsBody({super.key});
+  final String? focus;
+  const PaymentsBody({super.key, this.focus});
   @override
   State<PaymentsBody> createState() => _PaymentsBodyState();
 }
@@ -26,6 +31,7 @@ class _PaymentsBodyState extends State<PaymentsBody> with AutoReload {
   Snapshot? _s;
   String _view = 'Owed to you';
   String _q = '';
+  late String _owedFilter = widget.focus == 'refunds' ? 'Refunds' : (widget.focus == 'fees' ? 'Fees' : 'All');
 
   @override
   Future<void> reload() async {
@@ -43,8 +49,20 @@ class _PaymentsBodyState extends State<PaymentsBody> with AutoReload {
     final tds = s.collabs.fold<double>(0, (a, c) => a + c.tds);
     return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
       StatGrid(children: [
-        StatTile(label: 'Fees owed', value: money(fees), color: fees > 0 ? kPrimaryDark : null),
-        StatTile(label: 'Refunds owed', value: money(refunds), sub: 'your money out', color: refunds > 0 ? kAmberDark : null),
+        InkWell(
+          onTap: () => setState(() {
+            _view = 'Owed to you';
+            _owedFilter = 'Fees';
+          }),
+          child: StatTile(label: 'Fees owed', value: money(fees), color: fees > 0 ? kPrimaryDark : null),
+        ),
+        InkWell(
+          onTap: () => setState(() {
+            _view = 'Owed to you';
+            _owedFilter = 'Refunds';
+          }),
+          child: StatTile(label: 'Refunds owed', value: money(refunds), sub: 'your money out', color: refunds > 0 ? kAmberDark : null),
+        ),
         StatTile(label: 'Overdue', value: money(overdue), color: overdue > 0 ? kDanger : null),
         StatTile(label: 'TDS deducted', value: money(tds)),
       ]),
@@ -54,18 +72,48 @@ class _PaymentsBodyState extends State<PaymentsBody> with AutoReload {
         decoration: deco('Search brand, collab, reference').copyWith(prefixIcon: const Icon(Icons.search)),
         onChanged: (v) => setState(() => _q = v.toLowerCase()),
       ),
+      if (_view == 'Owed to you') ...[
+        const SizedBox(height: 10),
+        Wrap(spacing: 6, children: [
+          for (final f in const ['All', 'Fees', 'Refunds', 'Overdue'])
+            ChoiceChip(
+              label: Text(f, style: TextStyle(color: _owedFilter == f ? Colors.white : kInk, fontWeight: FontWeight.w600)),
+              selected: _owedFilter == f,
+              showCheckmark: false,
+              selectedColor: f == 'Refunds' ? kAmberDark : (f == 'Overdue' ? kDanger : kPrimary),
+              onSelected: (_) => setState(() => _owedFilter = f),
+            ),
+        ]),
+      ],
       const SizedBox(height: 12),
       ...(_view == 'Owed to you' ? _owed(s) : _received(s)),
     ]);
   }
 
   List<Widget> _owed(Snapshot s) {
-    final l = s.collabs.where((c) => c.pending > 0.5).where((c) {
+    final l = s.collabs.where((c) {
+      switch (_owedFilter) {
+        case 'Fees':
+          return c.pendingFee > 0.5;
+        case 'Refunds':
+          return c.pendingRefund > 0.5;
+        case 'Overdue':
+          return c.pending > 0.5 && c.paymentStatus == 'Overdue';
+        default:
+          return c.pending > 0.5;
+      }
+    }).where((c) {
       if (_q.isEmpty) return true;
       return '${c.title} ${c.brandName} ${c.paymentStatus}'.toLowerCase().contains(_q);
     }).toList()
       ..sort((a, b) => (a.dueDate ?? '9999').compareTo(b.dueDate ?? '9999'));
-    if (l.isEmpty) return [const EmptyState(icon: Icons.check_circle_outline, text: 'Nothing owed. All settled.')];
+    if (l.isEmpty) {
+      return [
+        EmptyState(
+            icon: Icons.check_circle_outline,
+            text: _owedFilter == 'Refunds' ? 'No refunds due. All settled.' : (_owedFilter == 'Fees' ? 'No fees pending.' : 'Nothing owed. All settled.'))
+      ];
+    }
     return l
         .map((c) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -87,8 +135,9 @@ class _PaymentsBodyState extends State<PaymentsBody> with AutoReload {
                           Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
                           Text(
                             [
-                              if (c.pendingFee > 0) 'Fee ${money(c.pendingFee)}',
-                              if (c.pendingRefund > 0) 'Refund ${money(c.pendingRefund)}',
+                              if (c.pendingFee > 0 && _owedFilter != 'Refunds') 'Fee ${money(c.pendingFee)}',
+                              if (c.pendingRefund > 0 && _owedFilter != 'Fees') 'Refund ${money(c.pendingRefund)}',
+                              if (_owedFilter == 'Refunds' && str(c.row['order_no']).isNotEmpty) 'Order #${str(c.row['order_no'])}',
                               'due ${showDate(c.dueDate)}',
                             ].join(' · '),
                             style: const TextStyle(fontSize: 12, color: kBody),
@@ -96,7 +145,8 @@ class _PaymentsBodyState extends State<PaymentsBody> with AutoReload {
                         ]),
                       ),
                       Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                        Text(money(c.pending), style: const TextStyle(fontWeight: FontWeight.w800)),
+                        Text(money(_owedFilter == 'Refunds' ? c.pendingRefund : (_owedFilter == 'Fees' ? c.pendingFee : c.pending)),
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
                         const SizedBox(height: 4),
                         Pill(c.paymentStatus, paymentStatusColor(c.paymentStatus)),
                       ]),

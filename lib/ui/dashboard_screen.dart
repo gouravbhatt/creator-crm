@@ -14,6 +14,7 @@ import 'income_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
 import 'type_picker.dart';
+import 'payments_screen.dart';
 import 'v2_widgets.dart';
 import 'widgets.dart';
 
@@ -144,8 +145,8 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoReload {
           const SizedBox(height: 12),
           StatGrid(children: [
             _tile('Brands owe you', money(owedFees), overdue > 0 ? '$overdue overdue' : 'fees pending', overdue > 0 ? kDanger : kMuted, kDanger,
-                () => widget.onOpenTab(2)),
-            _tile('Refunds due', money(refunds), 'your money out', kAmberDark, kAmber, () => widget.onOpenTab(2)),
+                () => push(context, const PaymentsScreen(focus: 'fees'))),
+            _tile('Refunds due', money(refunds), 'your money out', kAmberDark, kAmber, () => push(context, const PaymentsScreen(focus: 'refunds'))),
             _tile('Affiliate pending', money(affPending), '$affPlatforms platform${affPlatforms == 1 ? '' : 's'}', kMintDark, kMint,
                 () => widget.onOpenTab(2)),
             _tile('To post', '$toPost', '$dueWeek due this week', kPrimaryDark, kPrimary, () => widget.onOpenTab(1)),
