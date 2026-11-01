@@ -48,20 +48,26 @@ const Map<String, String> kStageMigration = {
 const String kPaid = 'Paid';
 const String kBarter = 'Barter';
 const String kBoth = 'Paid + Barter';
+/// Legacy kind (≤ v3.0). Migrated to Barter / Paid + Barter with product source 'order'.
 const String kOrder = 'Order & refund';
 const String kUgc = 'UGC';
 const String kCommission = 'Commission';
 const String kGifting = 'Gifting / PR';
 const String kEvent = 'Event';
-const List<String> kDealTypes = [kPaid, kBarter, kBoth, kOrder, kUgc, kCommission, kGifting, kEvent];
+const List<String> kDealTypes = [kPaid, kBarter, kBoth, kUgc, kCommission, kGifting, kEvent];
+
+/// How the creator gets the product (Barter / Paid + Barter).
+const String kSrcSend = 'send';
+const String kSrcOrder = 'order';
+bool kindHasSource(String k) => k == kBarter || k == kBoth;
 
 /// Older names → v3 kinds.
 const Map<String, String> kKindMigration = {'Barter + Paid': kBoth, 'Hybrid': kBoth};
 
 const Map<String, String> kKindHint = {
   kPaid: 'Cash fee for content',
-  kBarter: 'Brand sends product',
-  kBoth: 'Product + cash fee',
+  kBarter: 'Brand sends · or I order',
+  kBoth: 'Product + fee, any way',
   kOrder: 'I buy, brand refunds',
   kUgc: 'Video for brand’s ads',
   kCommission: 'Code / link, paid per sale',
@@ -86,7 +92,7 @@ bool kindHasProduct(String k) => k == kBarter || k == kBoth || k == kOrder || k 
 /// Kinds that always carry a cash fee.
 bool kindHasFee(String k) => k == kPaid || k == kBoth || k == kUgc || k == kEvent;
 
-// Fee modes for Order & refund.
+// Fee modes for Paid + Barter: fee separate (top) or one total incl. product (incl). none = barter only.
 const String kFeeNone = 'none';
 const String kFeeTop = 'top';
 const String kFeeIncl = 'incl';

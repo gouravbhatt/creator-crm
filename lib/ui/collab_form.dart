@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as pth;
 
 import '../core/constants.dart';
 import '../core/format.dart';
@@ -65,7 +67,9 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
   String _stage = 'Confirmed';
   String _refundWhen = 'After posting';
   bool _extraProduct = false;
-  String? _orderProof;
+  String _src = kSrcSend;
+  double _linkedValue = 0;
+  final List<Map<String, String>> _proofs = [];
   final List<_ProductDraft> _products = [_ProductDraft()];
   final Map<String, int> _counts = {'Reel': 1, 'Story': 0, 'Post': 0, 'YouTube video': 0, 'UGC video': 0};
   final Map<String, _Addon> _addons = {for (final a in kAddons) a: _Addon()};
@@ -131,15 +135,27 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
       _brandId = str(r['brand_id']);
       _contactId = r['contact_id'] as String?;
       _source = r['source'] as String?;
-      _kind = kDealTypes.contains(str(r['deal_type'])) ? str(r['deal_type']) : kPaid;
+      final legacyOrder = str(r['deal_type']) == kOrder;
+      _kind = legacyOrder
+          ? (toD(r['agreed_amount']) > 0 ? kBoth : kBarter)
+          : (kDealTypes.contains(str(r['deal_type'])) ? str(r['deal_type']) : kPaid);
+      _src = legacyOrder || str(r['product_src']) == kSrcOrder ? kSrcOrder : kSrcSend;
       _stage = kAllStages.contains(str(r['stage'])) ? str(r['stage']) : 'Confirmed';
-      _feeMode = str(r['fee_mode']).isEmpty ? (_kind == kOrder ? kFeeNone : kFeeTop) : str(r['fee_mode']);
+      _feeMode = str(r['fee_mode']) == kFeeIncl && _kind == kBoth ? kFeeIncl : kFeeTop;
       _refundWhen = str(r['refund_when']).isEmpty ? 'After posting' : str(r['refund_when']);
-      _orderProof = str(r['order_proof']).isEmpty ? null : str(r['order_proof']);
+      try {
+        for (final e in (jsonDecode(str(r['order_proofs'])) as List)) {
+          final m = (e as Map).map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+          if ((m['f'] ?? '').isNotEmpty) _proofs.add(m);
+        }
+      } catch (_) {}
+      if (_proofs.isEmpty && str(r['order_proof']).isNotEmpty) {
+        _proofs.add({'f': str(r['order_proof']), 'n': 'Order screenshot', 't': 'img'});
+      }
       title.text = str(r['title']);
       fee.text = numCtl(r['agreed_amount']).text;
       refundAmt.text = numCtl(r['refund_amount']).text;
-      if (_feeMode == kFeeIncl) total.text = numCtl(toD(r['agreed_amount']) + toD(r['refund_amount'])).text;
+
       barterFallback.text = numCtl(r['barter_value']).text;
       payDue.text = str(r['payment_due_date']);
       postBy.text = str(r['publish_date']);
@@ -173,13 +189,17 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
         }
       } catch (_) {}
       if (_contactId != null) _fillContact(_contactId!);
-      _linkedProducts = await Repo.count('products', where: 'collab_id = ?', args: [widget.collabId]);
+      final linked = await Repo.all('products', where: 'collab_id = ?', args: [widget.collabId]);
+      _linkedProducts = linked.length;
+      _linkedValue = linked.fold<double>(0, (a, p) => a + toD(p['purchase_price']) * (toI(p['quantity']) <= 0 ? 1 : toI(p['quantity'])));
+      if (_src == kSrcOrder && refundAmt.text.isEmpty) refundAmt.text = numCtl(_linkedValue > 0 ? _linkedValue : toD(r['barter_value'])).text;
+      if (_feeMode == kFeeIncl) total.text = numCtl(toD(r['agreed_amount']) + _productTotal).text;
     }
     if (mounted) setState(() => _loading = false);
   }
 
   void _applyKindDefaults() {
-    _feeMode = _kind == kOrder ? kFeeNone : kFeeTop;
+    _feeMode = kFeeTop;
     _counts.updateAll((k, v) => 0);
     if (_kind == kUgc) {
       _counts['UGC video'] = 1;
@@ -203,15 +223,19 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
 
   // ---------- derived ----------
   bool get _showProduct => kindHasProduct(_kind) || _extraProduct;
-  bool get _isOrder => _kind == kOrder;
-  bool get _showFee => kindHasFee(_kind) || (_isOrder && _feeMode != kFeeNone) || _kind == kCommission;
+  bool get _isOrder => kindHasSource(_kind) && _src == kSrcOrder;
+  bool get _isIncl => _kind == kBoth && _feeMode == kFeeIncl;
+  bool get _showFee => kindHasFee(_kind) || _kind == kCommission;
 
-  double get _productTotal =>
-      _isNew ? _products.fold<double>(0, (a, p) => a + p.total) : (_isOrder ? toD(refundAmt.text) : toD(barterFallback.text));
+  double get _productTotal {
+    if (_isNew) return _products.fold<double>(0, (a, p) => a + p.total);
+    if (_isOrder) return toD(refundAmt.text);
+    return _linkedProducts > 0 ? _linkedValue : toD(barterFallback.text);
+  }
 
   double get _feeValue {
-    if (_isOrder && _feeMode == kFeeIncl) return (toD(total.text) - _productTotal).clamp(0, double.infinity).toDouble();
-    if (_isOrder && _feeMode == kFeeNone) return 0;
+    if (_isIncl) return (toD(total.text) - _productTotal).clamp(0, double.infinity).toDouble();
+    if (_kind == kBarter || _kind == kGifting) return 0;
     return toD(fee.text);
   }
 
@@ -360,10 +384,53 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
   }
 
   Future<void> _pickProof() async {
-    final f = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1600);
-    if (f == null) return;
-    final n = await Media.importFile(f.path);
-    setState(() => _orderProof = n);
+    final how = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Screenshot or photo'),
+              subtitle: const Text('From gallery'),
+              onTap: () => Navigator.pop(c, 'img')),
+          ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              subtitle: const Text('Paper invoice or box'),
+              onTap: () => Navigator.pop(c, 'cam')),
+          ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('Order invoice (PDF or file)'),
+              subtitle: const Text('Amazon / Flipkart / Myntra tax invoice'),
+              onTap: () => Navigator.pop(c, 'file')),
+        ]),
+      ),
+    );
+    if (how == null) return;
+    try {
+      if (how == 'file') {
+        final r = await FilePicker.platform.pickFiles(
+            type: FileType.custom, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'], withData: true, allowMultiple: true);
+        if (r == null) return;
+        for (final f in r.files) {
+          final bytes = f.bytes ?? (f.path == null ? null : await File(f.path!).readAsBytes());
+          if (bytes == null) continue;
+          final ext = pth.extension(f.name).toLowerCase();
+          final n = await Media.importBytes(bytes, ext.isEmpty ? '.pdf' : ext);
+          final isPdf = ext == '.pdf';
+          setState(() => _proofs.add({'f': n, 'n': isPdf ? 'Order invoice · ${f.name}' : f.name, 't': isPdf ? 'pdf' : 'img'}));
+        }
+      } else {
+        final x = await ImagePicker()
+            .pickImage(source: how == 'cam' ? ImageSource.camera : ImageSource.gallery, imageQuality: 85, maxWidth: 2000);
+        if (x == null) return;
+        final n = await Media.importFile(x.path);
+        setState(() => _proofs.add({'f': n, 'n': how == 'cam' ? 'Order photo' : 'Order screenshot', 't': 'img'}));
+      }
+    } catch (e) {
+      if (mounted) toast(context, 'Could not add that file');
+    }
   }
 
   // ---------- save ----------
@@ -384,7 +451,7 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
         return;
       }
     }
-    if (_isOrder && _feeMode == kFeeIncl && toD(total.text) < _productTotal) {
+    if (_isIncl && toD(total.text) < _productTotal) {
       toast(context, 'Total must be at least the product cost (${money(_productTotal)})');
       return;
     }
@@ -408,7 +475,8 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
         'contact_id': contactId,
         'title': title.text.trim().isEmpty ? autoTitle : title.text.trim(),
         'deal_type': _kind,
-        'fee_mode': _isOrder ? _feeMode : kFeeTop,
+        'fee_mode': _kind == kBoth ? _feeMode : (_kind == kBarter ? kFeeNone : kFeeTop),
+        'product_src': kindHasSource(_kind) ? _src : kSrcSend,
         'agreed_amount': _feeValue,
         'refund_amount': _isOrder ? productTotal : null,
         'barter_value': (!_isOrder && _showProduct) ? productTotal : 0,
@@ -424,7 +492,8 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
         'order_no': _isOrder ? nn(orderNo) : null,
         'order_date': _isOrder ? nn(orderDate) : null,
         'order_site': _isOrder ? nn(orderSite) : null,
-        'order_proof': _isOrder ? _orderProof : null,
+        'order_proofs': _isOrder && _proofs.isNotEmpty ? jsonEncode(_proofs) : null,
+        'order_proof': _isOrder && _proofs.isNotEmpty ? _proofs.first['f'] : null,
         'refund_when': _isOrder ? _refundWhen : null,
         'campaign': nn(campaign),
         'start_date': nn(start),
@@ -570,6 +639,7 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
               child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
                 _brandPanel(),
                 _contactPanel(),
+                if (kindHasSource(_kind)) _sourcePanel(),
                 if (_showProduct) (_isNew ? _productPanel() : _productEditPanel()),
                 if (_isOrder) _orderPanel(),
                 _feePanel(),
@@ -605,7 +675,7 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
     setState(() {
       _kind = k;
       if (_isNew) _applyKindDefaults();
-      if (k == kOrder && _feeMode == kFeeTop && toD(fee.text) <= 0) _feeMode = kFeeNone;
+      if (k != kBoth) _feeMode = kFeeTop;
     });
   }
 
@@ -768,6 +838,49 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
           decoration: deco('Email'),
           validator: (v) => (v ?? '').trim().isEmpty || isValidEmail(v!) ? null : 'Enter a valid email',
         ),
+      ]),
+    );
+  }
+
+  Widget _sourcePanel() {
+    Widget opt(String v, String t, String sub, IconData icon) {
+      final on = _src == v;
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() {
+            _src = v;
+            if (!_isNew && v == kSrcOrder && refundAmt.text.isEmpty) {
+              refundAmt.text = numCtl(_linkedProducts > 0 ? _linkedValue : toD(barterFallback.text)).text;
+            }
+          }),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+            decoration: BoxDecoration(
+              color: on ? kPrimaryTint : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: on ? kPrimary : kLine, width: on ? 2 : 1.5),
+            ),
+            child: Column(children: [
+              Icon(icon, color: on ? kPrimaryDark : kMuted),
+              const SizedBox(height: 4),
+              Text(t, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: on ? kPrimaryDark : kInk)),
+              Text(sub, style: const TextStyle(fontSize: 11, color: kMuted)),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SmallLabel('How do you get the product?'),
+        const SizedBox(height: 10),
+        Row(children: [
+          opt(kSrcSend, 'Brand sends it', 'shipped to you', Icons.local_shipping_outlined),
+          const SizedBox(width: 8),
+          opt(kSrcOrder, 'I order it', 'brand refunds me', Icons.shopping_bag_outlined),
+        ]),
       ]),
     );
   }
@@ -955,18 +1068,35 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
         ]),
         const SizedBox(height: 10),
         DateField(orderDate, 'Order date'),
-        Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(side: const BorderSide(color: kAmberDark), foregroundColor: kAmberDark, backgroundColor: Colors.white),
-              onPressed: _pickProof,
-              icon: Icon(_orderProof == null ? Icons.receipt_long_outlined : Icons.check_circle, size: 18),
-              label: Text(_orderProof == null ? 'Add order screenshot' : 'Screenshot added'),
-            ),
+        const Text('Proofs — screenshot, order invoice (PDF or photo)',
+            style: TextStyle(fontSize: 12, color: kAmberDark, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        for (var i = 0; i < _proofs.length; i++)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.fromLTRB(10, 4, 0, 4),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              Icon(_proofs[i]['t'] == 'pdf' ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+                  color: _proofs[i]['t'] == 'pdf' ? kDanger : kPrimaryDark, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(_proofs[i]['n'] ?? 'Proof',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: kInk)),
+              ),
+              IconButton(
+                  onPressed: () => setState(() => _proofs.removeAt(i)),
+                  icon: const Icon(Icons.close, color: kAmberDark, size: 20),
+                  tooltip: 'Remove'),
+            ]),
           ),
-          if (_orderProof != null)
-            IconButton(onPressed: () => setState(() => _orderProof = null), icon: const Icon(Icons.close, color: kAmberDark), tooltip: 'Remove'),
-        ]),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: kAmberDark), foregroundColor: kAmberDark, backgroundColor: Colors.white, minimumSize: const Size(0, 46)),
+          onPressed: _pickProof,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Add proof (PDF · photo · screenshot)'),
+        ),
         const SizedBox(height: 10),
         Pick(
           label: 'Refund comes',
@@ -979,8 +1109,7 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
   }
 
   Widget _feePanel() {
-    final showFeeChoice = _isOrder;
-    if (!_showFee && !showFeeChoice && !(_kind == kBarter || _kind == kGifting)) return const SizedBox.shrink();
+    if (!_showFee && !(_kind == kBarter || _kind == kGifting)) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -989,17 +1118,38 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SmallLabel(_kind == kCommission ? 'Commission' : 'Cash fee', color: kPrimaryDark),
         const SizedBox(height: 10),
-        if (showFeeChoice) ...[
+        if (_kind == kBoth) ...[
           Segmented(
-            options: const [kFeeNone, kFeeTop, kFeeIncl],
-            labels: const {kFeeNone: 'No fee', kFeeTop: 'Fee on top', kFeeIncl: 'Total incl. product'},
+            options: const [kFeeIncl, kFeeTop],
+            labels: const {kFeeIncl: 'Fee includes product', kFeeTop: 'Fee is separate'},
             value: _feeMode,
-            onChanged: (v) => setState(() => _feeMode = v),
+            onChanged: (v) => setState(() {
+              if (v == kFeeIncl && total.text.isEmpty && toD(fee.text) > 0) total.text = numCtl(toD(fee.text) + _productTotal).text;
+              if (v == kFeeTop && fee.text.isEmpty && toD(total.text) > 0) fee.text = numCtl(_feeValue).text;
+              _feeMode = v;
+            }),
           ),
           const SizedBox(height: 12),
         ],
         if (_kind == kBarter || _kind == kGifting) ...[
-          const Text('No cash fee for barter. Getting paid too? Switch type to Paid + Barter.', style: TextStyle(color: kMuted, fontSize: 13)),
+          Text(
+              _isOrder
+                  ? 'No cash fee — the brand refunds only what you paid. Getting a fee too? Switch type to Paid + Barter.'
+                  : 'No cash fee for barter. Getting paid too? Switch type to Paid + Barter.',
+              style: const TextStyle(color: kMuted, fontSize: 13)),
+        ] else if (_isIncl) ...[
+          TextFormField(
+            controller: total,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            decoration: deco(_isOrder ? 'Brand pays in total, incl. product (₹)' : 'Deal value incl. product (₹)'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+              _isOrder
+                  ? '= product refund ${money(_productTotal)} + your fee ${money(_feeValue)}'
+                  : '= product ${money(_productTotal)} (sent by brand) + cash fee ${money(_feeValue)}',
+              style: const TextStyle(fontSize: 12, color: kMuted)),
         ] else if (_kind == kCommission) ...[
           Row(children: [
             Expanded(child: TextFormField(controller: promo, decoration: deco('Promo code / link'))),
@@ -1014,17 +1164,6 @@ class _CollabFormScreenState extends State<CollabFormScreen> {
               controller: fee, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: deco('Fixed fee too? (₹, optional)')),
           const SizedBox(height: 6),
           const Text('Log monthly commission payouts as payments on the collab.', style: TextStyle(fontSize: 12, color: kMuted)),
-        ] else if (_isOrder && _feeMode == kFeeNone) ...[
-          const Text('Only the product cost is refunded.', style: TextStyle(color: kMuted, fontSize: 13)),
-        ] else if (_isOrder && _feeMode == kFeeIncl) ...[
-          TextFormField(
-            controller: total,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-            decoration: deco('Brand pays in total (₹)'),
-          ),
-          const SizedBox(height: 6),
-          Text('= product ${money(_productTotal)} + your fee ${money(_feeValue)}', style: const TextStyle(fontSize: 12, color: kMuted)),
         ] else ...[
           TextFormField(
             controller: fee,

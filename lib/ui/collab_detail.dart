@@ -3,6 +3,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/constants.dart';
 import '../core/format.dart';
+import '../core/media.dart';
 import '../core/repo.dart';
 import '../core/snapshot.dart';
 import 'brands_screens.dart';
@@ -517,13 +518,24 @@ class _CollabDetailScreenState extends State<CollabDetailScreen> with AutoReload
           line(kAmber, 'Product ordered', orderBits.isEmpty ? 'Add order details in Edit' : orderBits, '− ${money(c.refundAmount)}', kAmberDark),
           line(kAmber, 'Refund', c.pendingRefund > 0 ? '${str(c.row['refund_when']).isEmpty ? 'Due' : str(c.row['refund_when'])}' : 'Received',
               c.pendingRefund > 0 ? '${money(c.pendingRefund)} due' : '✓ ${money(c.refundReceived)}', c.pendingRefund > 0 ? kAmberDark : kMintDark),
-          if (str(c.row['order_proof']).isNotEmpty)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () => push(context, _ProofViewer(fileName: str(c.row['order_proof']))),
-                icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                label: const Text('View order screenshot'),
+          for (final pr in c.orderProofs)
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => openProof(context, pr),
+              child: Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                decoration: BoxDecoration(color: kAmberTint, borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  Icon(pr['t'] == 'pdf' ? Icons.picture_as_pdf_outlined : Icons.image_outlined,
+                      color: pr['t'] == 'pdf' ? kDanger : kAmberDark, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(pr['n'] ?? 'Order proof',
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kInk)),
+                  ),
+                  Text(pr['t'] == 'pdf' ? 'Open / share' : 'View', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kAmberDark)),
+                ]),
               ),
             ),
         ],
@@ -805,13 +817,33 @@ Future<void> showStageSheet(BuildContext context, CollabView c, {String? presele
   Repo.notify();
 }
 
+/// Images open full screen; PDFs go to the share sheet (open in a PDF viewer, WhatsApp, Drive…).
+Future<void> openProof(BuildContext context, Map<String, String> pr) async {
+  final f = pr['f'] ?? '';
+  if (f.isEmpty) return;
+  if (pr['t'] == 'pdf') {
+    final file = await Media.file(f);
+    if (!await file.exists()) {
+      if (context.mounted) toast(context, 'File missing');
+      return;
+    }
+    await Share.shareXFiles([XFile(file.path, mimeType: 'application/pdf')], text: pr['n']);
+    return;
+  }
+  if (context.mounted) push(context, _ProofViewer(fileName: f, title: pr['n'] ?? 'Order proof'));
+}
+
 class _ProofViewer extends StatelessWidget {
   final String fileName;
-  const _ProofViewer({required this.fileName});
+  final String title;
+  const _ProofViewer({required this.fileName, this.title = 'Order screenshot'});
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.black,
-        appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Order screenshot', style: TextStyle(color: Colors.white, fontSize: 18))),
+        appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 18))),
         body: Center(child: InteractiveViewer(child: MediaImage(fileName, radius: 0, fit: BoxFit.contain))),
       );
 }

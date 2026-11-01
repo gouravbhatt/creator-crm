@@ -83,11 +83,31 @@ class Earnings {
 }
 
 /// Type filter values used by Home / Reports.
-const List<String> kTypeFilters = ['All', kPaid, kBarter, kBoth, kOrder, kUgc, kCommission, kGifting, kEvent];
+const String kFilterOrdered = 'I ordered (refund)';
+const String kFilterIncome = 'Affiliate & other';
+const List<String> kTypeFilters = ['All', kPaid, kBarter, kBoth, kFilterOrdered, kUgc, kCommission, kGifting, kEvent, kFilterIncome];
+
+/// A collab belongs to a period if anything about it happened in it: created, started,
+/// ordered, posted, due or paid. "All time" includes everything.
+bool collabInPeriod(CollabView c, Period p) {
+  if (p.key == 'All time') return true;
+  if (c.receipts.any((r) => p.hasStr(r['received_date']))) return true;
+  for (final k in ['start_date', 'order_date', 'payment_due_date', 'publish_date', 'event_date']) {
+    if (p.hasStr(c.row[k])) return true;
+  }
+  if (p.hasStr(c.postedDate)) return true;
+  if (p.hasStr(str(c.row['created_at']).split('T').first)) return true;
+  return false;
+}
 
 List<CollabView> filterCollabs(Snapshot s, {String type = 'All', String? brandId, String? platform, String? source}) {
   return s.collabs.where((c) {
-    if (type != 'All' && c.kind != type) return false;
+    if (type == kFilterIncome) return false;
+    if (type == kFilterOrdered) {
+      if (!c.isOrder) return false;
+    } else if (type != 'All' && c.kind != type) {
+      return false;
+    }
     if (brandId != null && c.row['brand_id'] != brandId) return false;
     if (source != null && c.source != source) return false;
     if (platform != null && !c.deliverables.any((d) => d['platform'] == platform)) return false;

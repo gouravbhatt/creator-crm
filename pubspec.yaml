@@ -1,7 +1,7 @@
 name: creator_crm
 description: Collabook — offline creator business manager (collabs, barter, refunds, affiliate, invoices).
 publish_to: 'none'
-version: 3.0.0+30
+version: 3.1.0+31
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

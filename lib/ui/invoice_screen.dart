@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/constants.dart';
 import '../core/format.dart';
+import '../core/media.dart';
 import '../core/invoice_pdf.dart';
 import '../core/repo.dart';
 import '../core/snapshot.dart';
@@ -99,13 +100,16 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
         _items.add(_Item('${str(a['name'])}${str(a['detail']).isEmpty ? '' : ' · ${str(a['detail'])}'}', toD(a['amount'])));
       }
       if (c.isOrder && c.refundAmount > 0) {
-        final prod = c.products.isEmpty ? 'Product' : c.products.map((p) => str(p['name'])).join(', ');
+        final prod = c.products.isEmpty
+            ? 'Product'
+            : c.products.map((p) => '${str(p['name'])} × ${toI(p['quantity']) <= 0 ? 1 : toI(p['quantity'])}').join(', ');
         _items.add(_Item(
           '$prod — bought by creator',
           c.refundAmount,
           link: [
-            if (str(c.row['order_site']).isNotEmpty) str(c.row['order_site']),
-            if (str(c.row['order_no']).isNotEmpty) 'order #${str(c.row['order_no'])}',
+            if (str(c.row['order_site']).isNotEmpty) 'Ordered on ${str(c.row['order_site'])}',
+            if (str(c.row['order_no']).isNotEmpty) 'Order #${str(c.row['order_no'])}',
+            if (c.orderProofs.isNotEmpty) 'proof attached',
           ].join(' · '),
           posted: str(c.row['order_date']),
           group: 'refund',
@@ -174,7 +178,14 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final c = _c!;
       final contact = str(c.row['contact_id']).isEmpty ? null : await Repo.byId('contacts', str(c.row['contact_id']));
       final file = await InvoicePdf.build(invoice: inv!, brand: _brand, collab: c, contact: contact);
-      await Share.shareXFiles([XFile(file.path, mimeType: 'application/pdf')], subject: 'Invoice ${number.text.trim()}');
+      final extra = <XFile>[];
+      if (_refundSubtotal > 0) {
+        for (final pr in c.orderProofs.where((x) => x['t'] == 'pdf')) {
+          final f = await Media.file(pr['f'] ?? '');
+          if (await f.exists()) extra.add(XFile(f.path, mimeType: 'application/pdf', name: 'Order_invoice_${extra.length + 1}.pdf'));
+        }
+      }
+      await Share.shareXFiles([XFile(file.path, mimeType: 'application/pdf'), ...extra], subject: 'Invoice ${number.text.trim()}');
       if (_status == 'Draft') {
         _status = 'Sent';
         await Repo.save('invoices', {'id': _id, 'status': 'Sent'});

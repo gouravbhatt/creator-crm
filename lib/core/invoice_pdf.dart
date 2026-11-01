@@ -311,6 +311,53 @@ class InvoicePdf {
       ]),
     ));
 
+    // ---------- annexure: order proofs (images printed; PDFs are shared alongside) ----------
+    if (refundTotal > 0 && collab.orderProofs.isNotEmpty) {
+      final imgs = <(String, Uint8List)>[];
+      for (final pr in collab.orderProofs.where((x) => x['t'] != 'pdf')) {
+        final b = await _img(pr['f']);
+        if (b != null) imgs.add((pr['n'] ?? 'Order proof', b));
+      }
+      final pdfs = collab.orderProofs.where((x) => x['t'] == 'pdf').map((x) => x['n'] ?? 'Order invoice').toList();
+      final orderLine = [
+        if (str(collab.row['order_site']).isNotEmpty) 'Ordered on ${str(collab.row['order_site'])}',
+        if (str(collab.row['order_no']).isNotEmpty) 'Order #${str(collab.row['order_no'])}',
+        if (str(collab.row['order_date']).isNotEmpty) showDate(collab.row['order_date']),
+        'Amount ${_rs(refundTotal)}',
+      ].join('  ·  ');
+      pw.Widget head(String sub) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text('Annexure — order proof', style: t(16, bold: true)),
+            pw.SizedBox(height: 2),
+            pw.Text('Invoice ${str(invoice['number'])}  ·  $orderLine', style: t(9, c: _muted)),
+            if (sub.isNotEmpty) pw.Text(sub, style: t(9, c: _muted)),
+            pw.SizedBox(height: 12),
+          ]);
+      if (imgs.isEmpty) {
+        doc.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(36),
+          build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            head(''),
+            pw.Text('Attached separately with this invoice:', style: t(11)),
+            for (final n in pdfs) pw.Bullet(text: n, style: t(11)),
+          ]),
+        ));
+      }
+      for (var i = 0; i < imgs.length; i++) {
+        doc.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(36),
+          build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            head([
+              imgs[i].$1,
+              if (i == 0 && pdfs.isNotEmpty) 'Also attached: ${pdfs.join(', ')}',
+            ].join('  ·  ')),
+            pw.Expanded(child: pw.Center(child: pw.Image(pw.MemoryImage(imgs[i].$2), fit: pw.BoxFit.contain))),
+          ]),
+        ));
+      }
+    }
+
     final bytes = await doc.save();
     final dir = await getTemporaryDirectory();
     final safe = str(invoice['number']).replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');

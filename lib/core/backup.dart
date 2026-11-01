@@ -44,6 +44,12 @@ class Backup {
     }
     for (final c in data['collabs']!) {
       if (str(c['order_proof']).isNotEmpty) mediaNames.add(str(c['order_proof']));
+      try {
+        for (final e in (jsonDecode(str(c['order_proofs'])) as List)) {
+          final f = str((e as Map)['f']);
+          if (f.isNotEmpty) mediaNames.add(f);
+        }
+      } catch (_) {}
     }
     var missing = 0;
     for (final n in mediaNames) {

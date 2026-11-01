@@ -35,9 +35,33 @@ class CollabView {
   String get agencyName => str(row['agency_name']);
   bool get active => isActiveStage(stage);
   bool get cancelled => stage == kCancelled;
-  bool get isOrder => kind == kOrder;
+  /// Brand sends the product, or I order it and the brand refunds me.
+  String get productSrc => kind == kOrder ? kSrcOrder : (str(row['product_src']) == kSrcOrder ? kSrcOrder : kSrcSend);
+
+  /// I bought the product and the brand refunds it (Barter / Paid + Barter with "I order it").
+  bool get isOrder => kind == kOrder || (kindHasSource(kind) && productSrc == kSrcOrder);
   bool get isUgc => kind == kUgc;
-  String get feeMode => str(row['fee_mode']).isEmpty ? (isOrder ? kFeeNone : kFeeTop) : str(row['fee_mode']);
+
+  /// Paid + Barter: fee separate (top) or one total incl. product (incl).
+  String get feeMode {
+    final m = str(row['fee_mode']);
+    if (kind == kBarter) return kFeeNone;
+    if (m == kFeeIncl || m == kFeeTop || m == kFeeNone) return m;
+    return kind == kOrder ? kFeeNone : kFeeTop;
+  }
+
+  /// Order proofs: screenshots, order invoice PDFs/photos. Each {f: file, n: label, t: img|pdf}.
+  List<Map<String, String>> get orderProofs {
+    try {
+      final l = (jsonDecode(str(row['order_proofs'])) as List)
+          .map((e) => (e as Map).map((k, v) => MapEntry(k.toString(), v?.toString() ?? '')))
+          .where((e) => (e['f'] ?? '').isNotEmpty)
+          .toList();
+      if (l.isNotEmpty) return l;
+    } catch (_) {}
+    final f = str(row['order_proof']);
+    return f.isEmpty ? [] : [{'f': f, 'n': 'Order screenshot', 't': f.toLowerCase().endsWith('.pdf') ? 'pdf' : 'img'}];
+  }
 
   // ---------- add-ons ----------
   List<Map<String, dynamic>> get addons {
@@ -58,7 +82,7 @@ class CollabView {
   double get agencyPct => toD(row['agency_pct']);
   double get agencyCut => agreed * agencyPct / 100;
   double get feeNet => agreed - agencyCut;
-  bool get hasCash => agreed > 0 || kindHasFee(kind) || (isOrder && feeMode != kFeeNone);
+  bool get hasCash => agreed > 0 || kindHasFee(kind) || (kind == kOrder && feeMode != kFeeNone);
 
   // ---------- refund (order & refund) ----------
   double get refundAmount => isOrder ? toD(row['refund_amount']) : 0;

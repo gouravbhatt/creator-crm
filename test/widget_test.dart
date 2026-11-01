@@ -80,6 +80,42 @@ void main() {
       expect(c.barterEarned, 2400);
       expect(c.paymentStatus, 'Barter');
     });
+    test('barter, I order it: refund tracked, product earned once refunded', () {
+      final c = _cv({'deal_type': kBarter, 'product_src': 'order', 'agreed_amount': 0, 'refund_amount': 2000, 'order_no': 'A1'});
+      expect(c.isOrder, true);
+      expect(c.hasCash, false);
+      expect(c.pendingRefund, 2000);
+      expect(c.pendingFee, 0);
+      expect(c.barterEarned, 0);
+      expect(c.paymentStatus, 'Unpaid');
+    });
+    test('paid + barter, I order, fee includes product', () {
+      // brand pays 5000 total: 2000 refund + 3000 fee (agreed_amount stores the fee part)
+      final c = _cv({'deal_type': kBoth, 'product_src': 'order', 'fee_mode': kFeeIncl, 'agreed_amount': 3000, 'refund_amount': 2000, 'order_no': 'A1'},
+          receipts: [
+            {'kind': 'Refund', 'amount': 2000, 'tds': 0, 'received_date': '2026-10-01'},
+            {'kind': 'Fee', 'amount': 2700, 'tds': 300, 'received_date': '2026-10-01'},
+          ]);
+      expect(c.pending, 0);
+      expect(c.received, 3000);
+      expect(c.earned, 5000);
+      expect(c.totalValue, 5000);
+    });
+    test('paid + barter, brand sends, fee separate', () {
+      final c = _cv({'deal_type': kBoth, 'product_src': 'send', 'fee_mode': kFeeTop, 'agreed_amount': 5000},
+          products: [{'purchase_price': 2000, 'quantity': 1}]);
+      expect(c.isOrder, false);
+      expect(c.refundAmount, 0);
+      expect(c.pendingFee, 5000);
+      expect(c.totalValue, 7000);
+    });
+    test('order proofs fall back to legacy single screenshot', () {
+      final c = _cv({'deal_type': kBarter, 'product_src': 'order', 'order_proof': 'a.jpg'});
+      expect(c.orderProofs.length, 1);
+      final d = _cv({'deal_type': kBarter, 'product_src': 'order', 'order_proofs': '[{"f":"x.pdf","n":"Invoice","t":"pdf"},{"f":"y.jpg","n":"Shot","t":"img"}]'});
+      expect(d.orderProofs.map((e) => e['t']).toList(), ['pdf', 'img']);
+    });
+
     test('add-ons add to fee', () {
       final c = _cv({'deal_type': kUgc, 'agreed_amount': 3000, 'addons': '[{"name":"Ad rights","amount":1000}]'});
       expect(c.agreed, 4000);

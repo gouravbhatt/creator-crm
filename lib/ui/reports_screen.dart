@@ -89,15 +89,18 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
 
   Widget _body(Snapshot s) {
     final p = Period.of(_period);
+    final incomeOnly = _type == kFilterIncome;
     final list = filterCollabs(s, type: _type, brandId: _brand, source: _source);
-    final collabFiltered = _type != 'All' || _brand != null || _source != null;
+    final collabFiltered = (_type != 'All' && !incomeOnly) || _brand != null || _source != null;
+    // Collabs active in the selected period — used by every count, table and box below.
+    final listP = list.where((c) => collabInPeriod(c, p)).toList();
     final e = computeEarnings(list, p, income: s.income, includeIncome: !collabFiltered);
     final prev = computeEarnings(list, p.previous(), income: s.income, includeIncome: !collabFiltered);
     final change = (p.key == 'All time' || prev.total <= 0) ? null : (e.total - prev.total) * 100 / prev.total;
 
     final children = <Widget>[
       _filters(s),
-      _totalCard(e, change, collabFiltered),
+      _totalCard(e, change, collabFiltered, incomeOnly),
     ];
     switch (_view) {
       case 'Month-wise':
@@ -108,20 +111,20 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
         break;
       case 'Sources':
         children.addAll([
-          Panel(title: 'Where collabs come from', child: _sources(list, p)),
-          Panel(title: 'By collab type', child: _byType(list, p)),
+          Panel(title: 'Where collabs come from', child: _sources(listP, p)),
+          Panel(title: 'By collab type', child: _byType(listP, p)),
           if (!collabFiltered) Panel(title: 'Affiliate & other by platform', child: _platforms(s, p)),
         ]);
         break;
       case 'Brands':
         children.addAll([
-          Panel(title: 'Top brands', child: _topBrands(list, p)),
-          Panel(title: 'Brand scorecard', child: _scorecard(list)),
+          Panel(title: 'Top brands', child: _topBrands(listP, p)),
+          Panel(title: 'Brand scorecard', child: _scorecard(listP, p)),
         ]);
         break;
       case 'Tax':
         children.addAll([
-          Panel(title: 'TDS by deductor (for ITR / 26AS)', child: _tds(list, collabFiltered ? const [] : s.income, p)),
+          Panel(title: 'TDS by deductor (for ITR / 26AS)', child: _tds(listP, collabFiltered ? const [] : s.income, p)),
           Panel(
             title: 'Summary',
             child: Column(children: [
@@ -138,20 +141,20 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
         break;
       default:
         children.addAll([
-          _cashFlow(s, list, e),
+          _cashFlow(s, listP, e),
           Panel(title: 'Income by month', child: SizedBox(height: 170, child: incomeBarChart(monthlySeries(list, p, income: collabFiltered ? const [] : s.income)))),
-          Panel(title: 'Where collabs come from', child: _sources(list, p)),
-          Panel(title: 'Content', child: _content(s, list, p, e)),
+          Panel(title: 'Where collabs come from', child: _sources(listP, p)),
+          Panel(title: 'Content', child: _content(s, listP, p, e)),
         ]);
     }
     return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 32), children: children);
   }
 
-  Widget _totalCard(Earnings e, double? change, bool collabOnly) {
+  Widget _totalCard(Earnings e, double? change, bool collabOnly, bool incomeOnly) {
     final rows = [
-      ('Collab fees', e.cash - e.ugc, kPrimary),
-      ('UGC', e.ugc, kBlue),
-      ('Barter / products kept', e.barter, kBarterBar),
+      if (!incomeOnly) ('Collab fees', e.cash - e.ugc, kPrimary),
+      if (!incomeOnly) ('UGC', e.ugc, kBlue),
+      if (!incomeOnly) ('Barter / products kept', e.barter, kBarterBar),
       if (!collabOnly) ('Affiliate', e.affiliate, kMint),
       if (!collabOnly) ('Other income', e.other, kAmber),
     ];
@@ -159,7 +162,8 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
     return Panel(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          Text(collabOnly ? 'Collab income (filtered)' : 'Total income', style: const TextStyle(fontSize: 13, color: kMuted)),
+          Text(incomeOnly ? 'Affiliate & other income' : (collabOnly ? 'Collab income (filtered)' : 'Total income'),
+              style: const TextStyle(fontSize: 13, color: kMuted)),
           const Spacer(),
           if (change != null)
             Text('${change >= 0 ? '▲' : '▼'} ${change.abs().toStringAsFixed(0)}%',
@@ -353,7 +357,7 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
     );
   }
 
-  Widget _scorecard(List<CollabView> list) {
+  Widget _scorecard(List<CollabView> list, Period p) {
     final by = <String, List<CollabView>>{};
     for (final c in list) {
       by.putIfAbsent(c.brandName, () => []).add(c);
@@ -374,7 +378,7 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoReload {
         ],
         rows: rows.map((e) {
           final l = e.value;
-          final earned = l.fold<double>(0, (a, c) => a + c.earned);
+          final earned = computeEarnings(l, p, includeIncome: false).total;
           final owed = l.fold<double>(0, (a, c) => a + c.pending);
           return DataRow(cells: [
             DataCell(Text(e.key)),

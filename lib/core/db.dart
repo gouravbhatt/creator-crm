@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:uuid/uuid.dart';
@@ -86,6 +87,36 @@ class AppDb {
       await d.rawUpdate('UPDATE collabs SET deal_type = ? WHERE deal_type = ?', [e.value, e.key]);
     }
     await d.rawUpdate("UPDATE payments SET kind = 'Fee' WHERE kind IS NULL OR kind = ''");
+    await migrateProductSource(d);
+  }
+
+  /// v3.1: "Order & refund" becomes Barter / Paid + Barter with product_src = order;
+  /// single order_proof becomes the order_proofs list. Idempotent.
+  static Future<void> migrateProductSource(DatabaseExecutor d) async {
+    // Order & refund with no fee → Barter (I order it)
+    await d.rawUpdate(
+        "UPDATE collabs SET deal_type = ?, product_src = 'order', fee_mode = 'none' "
+        "WHERE deal_type = ? AND COALESCE(agreed_amount, 0) <= 0 AND COALESCE(addons, '') IN ('', '[]')",
+        [kBarter, kOrder]);
+    // Order & refund with a fee → Paid + Barter (I order it), keep 'incl', else fee separate
+    await d.rawUpdate(
+        "UPDATE collabs SET deal_type = ?, product_src = 'order', "
+        "fee_mode = CASE WHEN fee_mode = 'incl' THEN 'incl' ELSE 'top' END WHERE deal_type = ?",
+        [kBoth, kOrder]);
+    await d.rawUpdate("UPDATE collabs SET product_src = 'send' WHERE product_src IS NULL OR product_src = ''");
+    await d.rawUpdate("UPDATE collabs SET fee_mode = 'top' WHERE deal_type = ? AND (fee_mode IS NULL OR fee_mode NOT IN ('top', 'incl'))", [kBoth]);
+    await d.rawUpdate("UPDATE collabs SET fee_mode = 'none' WHERE deal_type = ? AND (fee_mode IS NULL OR fee_mode = '')", [kBarter]);
+    final rows = await d.rawQuery(
+        "SELECT id, order_proof FROM collabs WHERE order_proof IS NOT NULL AND order_proof <> '' AND (order_proofs IS NULL OR order_proofs = '')");
+    for (final r in rows) {
+      final f = r['order_proof'].toString();
+      await d.rawUpdate('UPDATE collabs SET order_proofs = ? WHERE id = ?', [
+        jsonEncode([
+          {'f': f, 'n': 'Order screenshot', 't': f.toLowerCase().endsWith('.pdf') ? 'pdf' : 'img'}
+        ]),
+        r['id']
+      ]);
+    }
   }
 
   static Future<void> _addColumns(DatabaseExecutor d, String table, Map<String, String> cols) async {
@@ -114,6 +145,8 @@ class AppDb {
       'event_date': 'TEXT',
       'venue': 'TEXT',
       'addons': 'TEXT',
+      'product_src': 'TEXT',
+      'order_proofs': 'TEXT',
     });
     await _addColumns(d, 'contacts', {'instagram': 'TEXT', 'company': 'TEXT'});
     await _addColumns(d, 'payments', {'kind': 'TEXT'});
